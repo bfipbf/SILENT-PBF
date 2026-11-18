@@ -1,0 +1,12 @@
+# Salesforce CLI local authentication and state
+.sf/
+.sfdx/
+.localdevserver/
+# Tooling artifacts
+node_modules/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
