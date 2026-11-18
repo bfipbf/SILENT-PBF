@@ -152,7 +152,7 @@ async function runDeployGateway() {
         !allowedActors.has(process.env.GITHUB_ACTOR) ||
         !allowedActors.has(process.env.ISSUE_AUTHOR) ||
         !/^\d+$/.test(process.env.ISSUE_NUMBER || '')) fail('GitHub actor/repo/Issue tidak diizinkan.');
-    if ((process.env.SF_INSTANCE_URL || '').replace(/\/$/, '') !== INSTANCE) fail('SF_INSTANCE_URL bukan WDE yang diizinkan.');
+    if ((process.env.SF_BFI_PROD_LOGIN_URL || '').replace(/\/$/, '') !== INSTANCE) fail('SF_BFI_PROD_LOGIN_URL bukan WDE yang diizinkan.');
     // The explicit Issue request mode=deploy is sufficient. Keep actor/repo/org verification.
     return parseRequest(process.env.ISSUE_BODY || '');
   }
