@@ -2,21 +2,11 @@ name: Jim - External Services GET HEAD and approved POST
 on:
   issues:
     types: [opened, edited]
-  workflow_dispatch:
-    inputs:
-      private_issue:
-        description: 'PRIVATE-PBF Issue number containing ### Jim POST'
-        required: true
-        type: string
-      request_id:
-        description: 'Request ID matching private POST manifest'
-        required: true
-        type: string
 permissions:
   contents: read
   issues: read
 concurrency:
-  group: jim-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.request_id || github.event.issue.number }}
+  group: jim-issue-${{ github.event.issue.number }}
   cancel-in-progress: false
 jobs:
   jim-read-only:
@@ -58,16 +48,40 @@ jobs:
         shell: bash
         run: node .github/mjs/private-evidence.mjs
 
-  approved-post:
+
+  route-post-issue:
     if: >-
-      github.event_name == 'workflow_dispatch' &&
+      github.event_name == 'issues' &&
+      contains(fromJSON('["jimmytobing","098595","bfipbf"]'), github.actor) &&
+      contains(fromJSON('["jimmytobing","098595","bfipbf"]'), github.event.issue.user.login) &&
+      !github.event.issue.pull_request &&
+      contains(github.event.issue.body, '### Jim POST Request')
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      private_issue: ${{ steps.route.outputs.private_issue }}
+      request_id: ${{ steps.route.outputs.request_id }}
+    steps:
+      - name: Checkout without credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Read safe Issue reference (no secrets)
+        id: route
+        run: node .github/mjs/jim-post-issue-route.mjs
+
+  approved-post:
+    needs: route-post-issue
+    if: >-
+      github.event_name == 'issues' &&
+      needs.route-post-issue.result == 'success' &&
       contains(fromJSON('["jimmytobing","098595","bfipbf"]'), github.actor)
     environment: prod-write-approval
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      PRIVATE_ISSUE_NUMBER: ${{ inputs.private_issue }}
-      REQUEST_ID: ${{ inputs.request_id }}
+      PRIVATE_ISSUE_NUMBER: ${{ needs.route-post-issue.outputs.private_issue }}
+      REQUEST_ID: ${{ needs.route-post-issue.outputs.request_id }}
       PRIVATE_PBF_TOKEN: ${{ secrets.PRIVATE_PBF_TOKEN }}
       SF_CLIENT_ID: ${{ secrets.SF_BFI_PROD_CLIENT_ID }}
       SF_CLIENT_SECRET: ${{ secrets.SF_BFI_PROD_CLIENT_SECRET }}
