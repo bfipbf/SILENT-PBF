@@ -1,0 +1,44 @@
+name: Controlled PROD mutation preflight
+on:
+  workflow_dispatch:
+    inputs:
+      private_issue:
+        description: 'PRIVATE-PBF Issue number holding the approved mutation manifest'
+        required: true
+        type: string
+      request_id:
+        description: 'Immutable request ID matching the private manifest'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: mutation-${{ inputs.request_id }}
+  cancel-in-progress: false
+jobs:
+  approve-and-validate:
+    if: >-
+      contains(fromJSON('["jimmytobing","098595","bfipbf"]'), github.actor)
+    environment: prod-write-approval
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      PRIVATE_PBF_TOKEN: ${{ secrets.PRIVATE_PBF_TOKEN }}
+      MUTATION_PRIVATE_ISSUE: ${{ inputs.private_issue }}
+      MUTATION_REQUEST_ID: ${{ inputs.request_id }}
+    steps:
+      - name: Checkout without credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Verify private request and replay marker
+        shell: bash
+        run: node .github/mjs/mutation-preflight.mjs
+      - name: Confirm dry-run-only behavior
+        shell: bash
+        run: |
+          if [[ ! -s "$RUNNER_TEMP/mutation-preflight.json" ]]; then
+            echo 'BLOCKED - private preflight report missing'
+            exit 1
+          fi
+          echo 'PREFLIGHT_ONLY: no mutating API credentials loaded or operations executed'
