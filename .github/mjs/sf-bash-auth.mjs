@@ -3,18 +3,17 @@ import { spawnSync } from 'node:child_process';
 const rawUrl = (process.env.SF_BFI_PROD_LOGIN_URL || '').trim();
 const clientId = process.env.SF_CLIENT_ID;
 const clientSecret = process.env.SF_CLIENT_SECRET;
-if (!clientId || !clientSecret) throw new Error('WDE Salesforce OAuth secrets belum lengkap.');
+if (!clientId || !clientSecret) throw new Error('Salesforce OAuth secrets belum lengkap.');
 let instanceUrl;
 try {
   const url = new URL(rawUrl);
   if (url.protocol !== 'https:' || !url.hostname.endsWith('.my.salesforce.com') ||
-      url.hostname === 'ptbfifinance.my.salesforce.com' ||
       url.username || url.password || url.search || url.hash || url.pathname !== '/') {
     throw new Error('invalid');
   }
   instanceUrl = url.origin;
 } catch {
-  throw new Error('SF_BFI_PROD_LOGIN_URL harus My Domain WDE HTTPS tanpa path/query, bukan BFI_PROD.');
+  throw new Error('SF_BFI_PROD_LOGIN_URL harus HTTPS My Domain Salesforce tanpa path/query.');
 }
 const auth = await fetch(instanceUrl + '/services/oauth2/token', {
   method: 'POST',
@@ -23,7 +22,7 @@ const auth = await fetch(instanceUrl + '/services/oauth2/token', {
   redirect: 'error',
   signal: AbortSignal.timeout(30000),
 });
-if (!auth.ok) throw new Error('Salesforce WDE OAuth gagal: HTTP ' + auth.status);
+if (!auth.ok) throw new Error('Salesforce OAuth gagal: HTTP ' + auth.status);
 const result = await auth.json();
 if (typeof result.access_token !== 'string' || !result.access_token) {
   throw new Error('Salesforce OAuth tidak mengembalikan access token.');
@@ -39,4 +38,4 @@ if (login.error || login.status !== 0) {
   throw new Error('Salesforce CLI login gagal (exit ' + (login.status ?? 'unknown') +
     '). Token tidak ditampilkan; periksa permission OAuth dan versi CLI.');
 }
-console.log('Salesforce CLI authenticated to WDE as alias hdbsf.');
+console.log('Salesforce CLI authenticated as alias hdbsf.');
