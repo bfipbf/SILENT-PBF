@@ -1,0 +1,48 @@
+name: Jim - External Services read-only
+on:
+  issues:
+    types: [opened, edited]
+permissions:
+  contents: read
+  issues: read
+concurrency:
+  group: jim-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+jobs:
+  jim-read-only:
+    if: >-
+      contains(fromJSON('["jimmytobing","098595","bfipbf"]'), github.actor) &&
+      contains(fromJSON('["jimmytobing","098595","bfipbf"]'), github.event.issue.user.login) &&
+      !github.event.issue.pull_request &&
+      contains(github.event.issue.body, '### Jim Request')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      SF_BFI_PROD_LOGIN_URL: ${{ vars.SF_BFI_PROD_LOGIN_URL }}
+      SF_CLIENT_ID: ${{ secrets.SF_BFI_PROD_CLIENT_ID }}
+      SF_CLIENT_SECRET: ${{ secrets.SF_BFI_PROD_CLIENT_SECRET }}
+      SF_BFI_PROD_APIKEY: ${{ secrets.SF_BFI_PROD_APIKEY }}
+      PRIVATE_PBF_TOKEN: ${{ secrets.PRIVATE_PBF_TOKEN }}
+    steps:
+      - name: Checkout without persisted credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Check private evidence destination
+        shell: bash
+        run: |
+          if [[ -z "$PRIVATE_PBF_TOKEN" ]]; then
+            echo 'BLOCKED - private evidence token missing'
+            exit 1
+          fi
+      - name: Call LIVE-verified read-only External Services
+        id: jim
+        shell: bash
+        run: node .github/mjs/jim-readonly.mjs
+      - name: Publish private evidence only
+        if: always() && steps.jim.outcome != 'skipped'
+        env:
+          EVIDENCE_FILE: ${{ runner.temp }}/jim-evidence.md
+        shell: bash
+        run: node .github/mjs/private-evidence.mjs
