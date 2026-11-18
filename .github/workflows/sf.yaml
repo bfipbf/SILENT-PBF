@@ -24,7 +24,6 @@ jobs:
       SF_CLIENT_ID: ${{ secrets.SF_BFI_PROD_CLIENT_ID || secrets.SF_CLIENT_ID }}
       SF_CLIENT_SECRET: ${{ secrets.SF_BFI_PROD_CLIENT_SECRET || secrets.SF_CLIENT_SECRET }}
       SF_BFI_PROD_LOGIN_URL: ${{ vars.SF_BFI_PROD_LOGIN_URL }}
-      SF_INSTANCE_URL: ${{ vars.SF_INSTANCE_URL }}
       ISSUE_BODY: ${{ github.event.issue.body }}
       ISSUE_NUMBER: ${{ github.event.issue.number }}
       PRIVATE_PBF_TOKEN: ${{ secrets.PRIVATE_PBF_TOKEN }}
