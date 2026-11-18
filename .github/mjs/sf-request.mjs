@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
 
-// GitHub Issue-driven Salesforce WDE API gateway.
+// GitHub Issue-driven Salesforce API gateway.
 // Validasi host/endpoint wajib sebelum memakai token. Jangan log credential.
-var instanceUrl = (process.env.SF_INSTANCE_URL || '').trim().replace(/\/$/, '');
+var instanceUrl = (process.env.SF_BFI_PROD_LOGIN_URL || '').trim().replace(/\/$/, '');
 var clientId = process.env.SF_CLIENT_ID;
 var clientSecret = process.env.SF_CLIENT_SECRET;
 var issueBody = process.env.ISSUE_BODY || '';
@@ -45,17 +45,14 @@ function parseIssueRequest(text) {
 }
 
 function validateInstanceUrl() {
-  if (!instanceUrl) throw new Error('GitHub Variable SF_INSTANCE_URL belum disetel.');
+  if (!instanceUrl) throw new Error('GitHub Variable SF_BFI_PROD_LOGIN_URL belum disetel.');
   var base;
   try { base = new URL(instanceUrl); }
-  catch { throw new Error('SF_INSTANCE_URL bukan URL valid.'); }
+  catch { throw new Error('SF_BFI_PROD_LOGIN_URL bukan URL valid.'); }
   if (base.protocol !== 'https:' || !base.hostname.endsWith('.my.salesforce.com') ||
       base.username || base.password || base.pathname !== '/' || base.search || base.hash ||
       base.origin !== instanceUrl) {
-    throw new Error('SF_INSTANCE_URL harus HTTPS My Domain Salesforce tanpa path/query.');
-  }
-  if (base.origin !== 'https://hdbsf-dev-ed.develop.my.salesforce.com') {
-    throw new Error('SF_INSTANCE_URL wajib menunjuk ke domain WDE hdbsf (bukan org lain).');
+    throw new Error('SF_BFI_PROD_LOGIN_URL harus HTTPS My Domain Salesforce tanpa path/query.');
   }
 }
 
@@ -63,7 +60,7 @@ function validateRequest(input) {
   if (typeof input.url !== 'string') throw new Error('url wajib berupa URL HTTPS atau path API relatif.');
   var url;
   try {
-    // Relative paths are resolved only against the configured, validated WDE domain.
+    // Relative paths are resolved only against the configured, validated Salesforce domain.
     url = input.url.startsWith('/services/')
       ? new URL(input.url, instanceUrl)
       : new URL(input.url);
@@ -75,18 +72,15 @@ function validateRequest(input) {
     url.username || url.password || url.hash ||
     input.url.length > 2048
   ) {
-    throw new Error('URL harus HTTPS Salesforce WDE dengan host yang disetujui.');
+    throw new Error('URL harus HTTPS Salesforce dengan host yang disetujui.');
   }
-  // No per-endpoint allowlist. Keep requests on the verified WDE Salesforce REST namespace.
+  // No per-endpoint allowlist. Keep requests on the Salesforce REST namespace.
   if (!/^\/services\/(?:data\/v[0-9]+\.[0-9]+\/|apexrest\/)/.test(url.pathname)) {
     throw new Error('Hanya Salesforce REST data/apexrest namespace yang diizinkan.');
   }
   var method = (input.options.method || 'GET').toUpperCase();
   if (!['GET', 'POST', 'PATCH', 'PUT', 'DELETE'].includes(method)) {
     throw new Error('Method tidak didukung.');
-  }
-  if (input.targetOrgId !== '00Dfj00000eVCOVEA4') {
-    throw new Error('targetOrgId wajib cocok dengan immutable WDE Org ID.');
   }
   var rawHeaders = input.options.headers || {};
   if (!rawHeaders || typeof rawHeaders !== 'object' || Array.isArray(rawHeaders)) {
@@ -169,7 +163,7 @@ async function writeEvidence(evidence) {
   var status = response ? response.status : 'N/A';
   var method = parsed ? parsed.method : 'N/A';
   var url = parsed ? parsed.url.toString() : '(request belum valid)';
-  var lines = ['## Sf Request — WDE — Issue #' + issue, '',
+  var lines = ['## Sf Request — Issue #' + issue, '',
     'Status: **' + (error ? 'FAILED' : response && response.ok ? 'SUCCESS' : 'FAILED') + '** · HTTP ' + status + ' · Method ' + method, ''];
   if (parsed) {
     var soql = parsed.url.searchParams.get('q');
@@ -192,7 +186,7 @@ async function writeEvidence(evidence) {
   var markdown = lines.join('\n');
   markdown = sanitize(markdown, secrets);
   if (Buffer.byteLength(markdown) > 55000) {
-    markdown = '## Sf Request — WDE — Issue #' + issue + '\n\nHTTP ' + status + '\n\nResponse terlalu besar untuk satu komentar; batasi query atau payload.';
+    markdown = '## Sf Request — Issue #' + issue + '\n\nHTTP ' + status + '\n\nResponse terlalu besar untuk satu komentar; batasi query atau payload.';
   }
   await fs.writeFile(EVIDENCE_FILE, markdown, { mode: 0o600 });
 }
@@ -223,21 +217,6 @@ async function main() {
     if (typeof accessToken !== 'string' || !accessToken) throw new Error('OAuth tidak memberikan access_token.');
     if (process.env.GITHUB_ACTIONS === 'true') process.stdout.write('::add-mask::' + accessToken + '\n');
 
-    // Verify authenticated org, not merely CLI alias / My Domain string.
-    var verificationQuery = new URL(instanceUrl + '/services/data/v68.0/query');
-    verificationQuery.searchParams.set('q', 'SELECT Id, OrganizationType FROM Organization LIMIT 1');
-    var verifyResponse = await fetch(verificationQuery, {
-      headers: { Authorization: 'Bearer ' + accessToken },
-      redirect: 'error',
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!verifyResponse.ok) throw new Error('Org verification failed: HTTP ' + verifyResponse.status);
-    var verifiedOrg = (await verifyResponse.json()).records?.[0];
-    if (verifiedOrg?.Id !== '00Dfj00000eVCOVEA4' || verifiedOrg?.OrganizationType !== 'Developer Edition') {
-      throw new Error('Authenticated Salesforce org does not match WDE Developer Edition Org ID.');
-    }
-    console.log('VERIFIED_ORG_ID', verifiedOrg.Id);
-
     parsed.headers.set('Authorization', 'Bearer ' + accessToken);
     response = await fetch(parsed.url, {
       method: parsed.method,
@@ -248,7 +227,7 @@ async function main() {
     });
     data = await readResponse(response);
     await writeEvidence({ parsed, response, data, secrets: [clientId, clientSecret, accessToken] });
-    console.log('Issue #' + (process.env.ISSUE_NUMBER || '?') + ': ' + parsed.method + ' Salesforce WDE HTTP ' + response.status);
+    console.log('Issue #' + (process.env.ISSUE_NUMBER || '?') + ': ' + parsed.method + ' Salesforce HTTP ' + response.status);
     if (!response.ok) process.exitCode = 1;
   } catch (error) {
     console.error('SF API FAILED:', error.message);
