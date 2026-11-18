@@ -29,23 +29,23 @@ const requestType = requestTypes[kind];
 if (!requestType) throw Error("Unknown evidence kind.");
 const issueBody = process.env.ISSUE_BODY || "";
 function extractRequest(body, heading, language) {
-  const sections = body.split(/\\r?\\n/);
+  const sections = body.split(/\r?\n/);
   const found = [];
   for (let i = 0; i < sections.length; i++) {
     if (sections[i].trim() !== "### " + heading) continue;
     const section = [];
     for (const line of sections.slice(i + 1)) {
-      if (/^#{1,3}\\s+/.test(line)) break;
+      if (/^#{1,3}\s+/.test(line)) break;
       section.push(line);
     }
-    const source = section.join("\\n");
-    const fences = [...source.matchAll(/(?:^|\\n)```(json|bash)[ \\t]*\\n([\\s\\S]*?)\\n```[ \\t]*(?=\\n|$)/gi)];
+    const source = section.join("\n");
+    const fences = [...source.matchAll(/(?:^|\n)```(json|bash)[ \t]*\n([\s\S]*?)\n```[ \t]*(?=\n|$)/gi)];
     if (fences.length !== 1 || fences[0][1].toLowerCase() !== language) throw Error("Expected one matching gateway request block.");
     found.push(fences[0][2]);
   }
   if (found.length !== 1) throw Error("Expected exactly one gateway heading.");
   if (!found[0].trim() || Buffer.byteLength(found[0], "utf8") > 12000) throw Error("Gateway request block invalid or too large.");
-  return "### " + heading + "\\n\\n```" + language + "\\n" + found[0] + "\\n```\\n\\n";
+  return "### " + heading + "\n\n```" + language + "\n" + found[0] + "\n```\n\n";
 }
 const requestBlock = extractRequest(issueBody, ...requestType);
 const statusAt = evidence.search(/^Status: /m);
