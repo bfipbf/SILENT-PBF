@@ -175,7 +175,7 @@ jobs:
 
   sf-deploy:
     if: >-
-      github.repository == 'jimmytobing/Syntetic-Wisdom' &&
+      github.repository == 'bfipbf/SILENT-PBF' &&
       contains(fromJSON('["jimmytobing","098595","bfipbf"]'), github.actor) &&
       contains(fromJSON('["jimmytobing","098595","bfipbf"]'), github.event.issue.user.login) &&
       contains(github.event.issue.body, '### Sf Deploy')
@@ -213,7 +213,7 @@ jobs:
         run: node trusted/.github/mjs/sf-bash.mjs inspect
       - name: Install official Salesforce CLI (no npm)
         id: install
-        if: steps.route.outcome == 'success'
+        if: steps.inspect.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
@@ -228,7 +228,7 @@ jobs:
           "$CLI_DIR/bin/sf" --version
       - name: Authenticate CLI using trusted gateway script
         id: auth
-        if: steps.route.outcome == 'success'
+        if: steps.install.outcome == 'success'
         shell: bash
         env:
           SF_CLIENT_ID: ${{ secrets.SF_BFI_PROD_CLIENT_ID || secrets.SF_CLIENT_ID }}
@@ -236,7 +236,7 @@ jobs:
         run: node trusted/.github/mjs/sf-bash-auth.mjs
       - name: Execute requested Salesforce validate/deploy
         id: execute
-        if: steps.route.outcome == 'success'
+        if: steps.auth.outcome == 'success'
         shell: bash
         run: node trusted/.github/mjs/sf-bash.mjs run
       - name: Prepare evidence if CLI or checkout failed before execution
@@ -253,7 +253,7 @@ jobs:
           FILE="$RUNNER_TEMP/sf-deploy-comment.md"
           if [[ ! -s "$FILE" ]]; then
             {
-              echo "## Sf Deploy — WDE — Issue $ISSUE_NUMBER"
+              echo "## Sf Deploy — Issue $ISSUE_NUMBER"
               echo
               echo "Status: **FAILED before Salesforce result**"
               echo
@@ -284,12 +284,17 @@ jobs:
         with:
           name: sf-deploy-${{ github.run_id }}
           path: ${{ runner.temp }}/sf-deploy-result
-      - name: Publish response in the originating Issue
+      - name: Checkout trusted publisher
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Publish Sf Deploy evidence to linked PRIVATE-PBF Issue only
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+          PRIVATE_PBF_TOKEN: ${{ secrets.PRIVATE_PBF_TOKEN }}
+          EVIDENCE_FILE: ${{ runner.temp }}/sf-deploy-result/sf-deploy-comment.md
+          EVIDENCE_KIND: sf-deploy
         run: |
           set -euo pipefail
-          test -s "$RUNNER_TEMP/sf-deploy-result/sf-deploy-comment.md"
-          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/sf-deploy-result/sf-deploy-comment.md"
+          node .github/mjs/publish-jim-private.mjs
