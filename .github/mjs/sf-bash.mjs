@@ -203,7 +203,11 @@ async function runDeployGateway() {
     const ok = code === 0 && result.status === 0 && r.done === true && r.success === true &&
       r.status === 'Succeeded' && r.checkOnly === (req.mode === 'validate') &&
       (r.numberComponentErrors || 0) === 0;
-    return { success:ok, mode:req.mode, sha:req.commit, manifest:req.manifest,
+    const diagnostic = !ok ? {
+      errorCode: String(result.name || result.data?.errorCode || result.errorCode || '').slice(0, 100),
+      errorMessage: String(result.message || result.data?.message || '').slice(0, 400)
+    } : {};
+    return { ...diagnostic, success:ok, mode:req.mode, sha:req.commit, manifest:req.manifest,
       deploymentId:r.id || null, status:r.status || 'Unknown', checkOnly:r.checkOnly === true,
       totalComponents:r.numberComponentsTotal ?? null, componentErrors:r.numberComponentErrors ?? null,
       testErrors:r.numberTestErrors ?? null, manifestMembers:scope.count, failures };
@@ -233,7 +237,7 @@ async function runDeployGateway() {
     } else if(cmd==='run') {
       const scope=inspectManifest(req);
       const args=['project','deploy','start','--target-org','hdbsf','--manifest',req.manifest,
-        '--test-level','NoTestRun','--wait','8','--json'];
+        '--test-level','RunLocalTests','--wait','8','--json'];
       if(req.mode==='validate') args.splice(3,0,'--dry-run');
       if(req.preDestructiveChanges) args.push('--pre-destructive-changes',req.preDestructiveChanges);
       if(req.postDestructiveChanges) args.push('--post-destructive-changes',req.postDestructiveChanges);
