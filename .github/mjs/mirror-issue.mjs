@@ -2,7 +2,7 @@ import fs from 'node:fs';
 
 const PUBLIC = 'bfipbf/SILENT-PBF';
 const PRIVATE = 'bfipbf/PRIVATE-PBF';
-const ev = JSON.parse(fs.readFileSync(process.env.EVENT_PATH, 'utf8'));
+const ev = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
 const issue = ev.issue;
 const n = issue?.number;
 if (!Number.isInteger(n) || issue.pull_request) throw Error('Invalid issue event');
