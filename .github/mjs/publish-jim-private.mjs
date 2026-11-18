@@ -15,6 +15,43 @@ if (!file) throw Error("EVIDENCE_FILE missing.");
 const evidence = await fs.readFile(file, "utf8");
 if (!evidence.trim()) throw Error("Evidence is empty.");
 
+// Put the exact originating gateway request in its own evidence comment, before Status.
+// The mirror issue body stays source-only. Never alter the gateway run's result.
+const kind = process.env.EVIDENCE_KIND || "";
+const requestTypes = {
+  "request": ["Jim Request", "json"],
+  "bash": ["Jim Bash", "bash"],
+  "sf-request": ["Sf Request", "json"],
+  "sf-bash": ["Sf Bash", "bash"],
+  "sf-deploy": ["Sf Deploy", "json"]
+};
+const requestType = requestTypes[kind];
+if (!requestType) throw Error("Unknown evidence kind.");
+const issueBody = process.env.ISSUE_BODY || "";
+function extractRequest(body, heading, language) {
+  const sections = body.split(/\r?\n/);
+  const found = [];
+  for (let i = 0; i < sections.length; i++) {
+    if (sections[i].trim() !== "### " + heading) continue;
+    const section = [];
+    for (const line of sections.slice(i + 1)) {
+      if (/^#{1,3}\s+/.test(line)) break;
+      section.push(line);
+    }
+    const source = section.join("\n");
+    const fences = [...source.matchAll(/(?:^|\n)```(json|bash)[ \t]*\n([\s\S]*?)\n```[ \t]*(?=\n|$)/gi)];
+    if (fences.length !== 1 || fences[0][1].toLowerCase() !== language) throw Error("Expected one matching gateway request block.");
+    found.push(fences[0][2]);
+  }
+  if (found.length !== 1) throw Error("Expected exactly one gateway heading.");
+  if (!found[0].trim() || Buffer.byteLength(found[0], "utf8") > 12000) throw Error("Gateway request block invalid or too large.");
+  return "### " + heading + "\n\n```" + language + "\n" + found[0] + "\n```\n\n";
+}
+const requestBlock = extractRequest(issueBody, ...requestType);
+const statusAt = evidence.search(/^Status: /m);
+if (statusAt === -1) throw Error("Evidence lacks Status line.");
+const formattedEvidence = evidence.slice(0, statusAt) + requestBlock + evidence.slice(statusAt);
+
 async function api(path, method = "GET", body) {
   const response = await fetch("https://api.github.com/repos/" + PRIVATE + path, {
     method,
@@ -64,7 +101,7 @@ if (found.length > 1) throw Error("Duplicate private evidence marker.");
 if (!found.length) {
   await api("/issues/" + target.number + "/comments", "POST", {
     body: "Source: https://github.com/" + PUBLIC + "/issues/" + issue +
-      "\n" + publishMarker + "\n\n" + evidence
+      "\n" + publishMarker + "\n\n" + formattedEvidence
   });
 }
 console.log("Jim evidence published to linked private issue #" + target.number + " only.");

@@ -17,7 +17,7 @@ if (!pubToken || !privToken) throw Error('BLOCKED: required token missing');
 const marker = '<!-- silent-pbf-issue:' + n + ' -->';
 const purl = 'https://github.com/' + PUBLIC + '/issues/' + n;
 const safe = s => String(s ?? '').slice(0, 50000);
-const header = 'Source: ' + purl + '\n' + marker;
+const header = 'Source: [' + PUBLIC + '#' + n + '](' + purl + ')\n\n' + marker;
 async function api(repo, token, route, method='GET', body) {
   const res = await fetch('https://api.github.com/repos/' + repo + route, {
     method,
@@ -48,7 +48,7 @@ const matches = (await pages(PRIVATE, privToken, '/issues?state=all'))
   .filter(x=>!x.pull_request && typeof x.body==='string' && x.body.includes(marker));
 if(matches.length>1) throw Error('Duplicate private mirrors detected; manual intervention');
 let target = matches[0];
-const mirroredBody = header + '\n\n---\n\n' + safe(issue.body);
+const mirroredBody = header; // Keep request payload only in per-run evidence comments.
 if (!target) {
   target = await api(PRIVATE,privToken,'/issues','POST',{
     title: '[SILENT #' + n + '] ' + safe(issue.title).slice(0,180),

@@ -50,6 +50,7 @@ jobs:
         env:
           EVIDENCE_FILE: ${{ runner.temp }}/jim-request-comment.md
           EVIDENCE_KIND: request
+          ISSUE_BODY: ${{ github.event.issue.body }}
         shell: bash
         run: |
           set -euo pipefail
@@ -118,6 +119,7 @@ jobs:
           PRIVATE_PBF_TOKEN: ${{ secrets.PRIVATE_PBF_TOKEN }}
           EVIDENCE_FILE: ${{ runner.temp }}/jim-bash-result/jim-bash-comment.md
           EVIDENCE_KIND: bash
+          ISSUE_BODY: ${{ github.event.issue.body }}
         shell: bash
         run: |
           set -euo pipefail

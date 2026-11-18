@@ -51,6 +51,7 @@ jobs:
         env:
           EVIDENCE_FILE: ${{ runner.temp }}/sf-request-comment.md
           EVIDENCE_KIND: sf-request
+          ISSUE_BODY: ${{ github.event.issue.body }}
         shell: bash
         run: |
           set -euo pipefail
@@ -168,6 +169,7 @@ jobs:
           PRIVATE_PBF_TOKEN: ${{ secrets.PRIVATE_PBF_TOKEN }}
           EVIDENCE_FILE: ${{ runner.temp }}/sf-bash-result/sf-bash-comment.md
           EVIDENCE_KIND: sf-bash
+          ISSUE_BODY: ${{ github.event.issue.body }}
         shell: bash
         run: |
           set -euo pipefail
@@ -295,6 +297,7 @@ jobs:
           PRIVATE_PBF_TOKEN: ${{ secrets.PRIVATE_PBF_TOKEN }}
           EVIDENCE_FILE: ${{ runner.temp }}/sf-deploy-result/sf-deploy-comment.md
           EVIDENCE_KIND: sf-deploy
+          ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
           set -euo pipefail
           node .github/mjs/publish-jim-private.mjs
