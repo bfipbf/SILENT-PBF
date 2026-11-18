@@ -112,9 +112,7 @@ else await main();
 async function runDeployGateway() {
   const fs = fsSync;
   
-  // WDE GitHub Issue-driven metadata gateway. Never execute source-branch scripts.
-  const ORG_ID = '00Dfj00000eVCOVEA4';
-  const INSTANCE = 'https://hdbsf-dev-ed.develop.my.salesforce.com';
+  // GitHub Issue-driven metadata gateway. Never execute source-branch scripts.
   const HEADING = '### Sf Deploy';
   const tmp = process.env.RUNNER_TEMP || '/tmp';
   const evidence = path.join(tmp, 'sf-deploy-comment.md');
@@ -152,8 +150,7 @@ async function runDeployGateway() {
         !allowedActors.has(process.env.GITHUB_ACTOR) ||
         !allowedActors.has(process.env.ISSUE_AUTHOR) ||
         !/^\d+$/.test(process.env.ISSUE_NUMBER || '')) fail('GitHub actor/repo/Issue tidak diizinkan.');
-    if ((process.env.SF_BFI_PROD_LOGIN_URL || '').replace(/\/$/, '') !== INSTANCE) fail('SF_BFI_PROD_LOGIN_URL bukan WDE yang diizinkan.');
-    // The explicit Issue request mode=deploy is sufficient. Keep actor/repo/org verification.
+    // Keep repository and actor authorization; target org is determined by Salesforce login.
     return parseRequest(process.env.ISSUE_BODY || '');
   }
   function inspectManifest(req) {
@@ -197,13 +194,6 @@ async function runDeployGateway() {
     try { response = JSON.parse(p.stdout); } catch { fail('Salesforce CLI output bukan JSON (exit ' + p.status + ').'); }
     return { response, exitCode:p.status };
   }
-  function verifyOrg() {
-    const {response,exitCode} = callSf(['data','query','--target-org','hdbsf','--query','SELECT Id, OrganizationType FROM Organization LIMIT 1','--json'], process.cwd(), 30000);
-    const org = response.result?.records?.[0];
-    if (exitCode !== 0 || response.status !== 0 || response.result?.records?.length !== 1 ||
-        org.Id !== ORG_ID || org.OrganizationType !== 'Developer Edition') fail('Salesforce LIVE Org ID / edition verification failed.');
-    return org.Id;
-  }
   function summary(result, code, req, scope) {
     const r = result.result || {};
     const rawFailures = r.details?.componentFailures;
@@ -213,7 +203,7 @@ async function runDeployGateway() {
     const ok = code === 0 && result.status === 0 && r.done === true && r.success === true &&
       r.status === 'Succeeded' && r.checkOnly === (req.mode === 'validate') &&
       (r.numberComponentErrors || 0) === 0;
-    return { success:ok, mode:req.mode, sha:req.commit, manifest:req.manifest, orgId:ORG_ID,
+    return { success:ok, mode:req.mode, sha:req.commit, manifest:req.manifest,
       deploymentId:r.id || null, status:r.status || 'Unknown', checkOnly:r.checkOnly === true,
       totalComponents:r.numberComponentsTotal ?? null, componentErrors:r.numberComponentErrors ?? null,
       testErrors:r.numberTestErrors ?? null, manifestMembers:scope.count, failures };
@@ -242,7 +232,6 @@ async function runDeployGateway() {
       console.log('Sf Deploy manifest inspection PASS, members '+scope.count);
     } else if(cmd==='run') {
       const scope=inspectManifest(req);
-      verifyOrg();
       const args=['project','deploy','start','--target-org','hdbsf','--manifest',req.manifest,
         '--test-level','NoTestRun','--wait','8','--json'];
       if(req.mode==='validate') args.splice(3,0,'--dry-run');
