@@ -25,7 +25,6 @@ jobs:
       SF_BFI_PROD_APIKEY: ${{ secrets.SF_BFI_PROD_APIKEY }}
       ISSUE_BODY: ${{ github.event.issue.body }}
       ISSUE_NUMBER: ${{ github.event.issue.number }}
-      GH_TOKEN: ${{ github.token }}
       PRIVATE_PBF_TOKEN: ${{ secrets.PRIVATE_PBF_TOKEN }}
     steps:
       - name: Checkout repository
@@ -46,17 +45,15 @@ jobs:
         run: |
           set -euo pipefail
           node .github/mjs/jim-request.mjs
-      - name: Publish result in the same Issue
+      - name: Publish result to linked PRIVATE-PBF Issue only
         if: always() && steps.route.outputs.valid == 'true' && steps.jim.outcome != 'skipped'
+        env:
+          EVIDENCE_FILE: ${{ runner.temp }}/jim-request-comment.md
+          EVIDENCE_KIND: request
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -s "$RUNNER_TEMP/jim-request-comment.md" ]]; then
-            gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/jim-request-comment.md"
-          else
-            echo 'No evidence file generated; see job logs.' >&2
-            exit 1
-          fi
+          node .github/mjs/publish-jim-private.mjs
 
   jim-bash:
     if: >-
@@ -111,11 +108,17 @@ jobs:
         with:
           name: jim-bash-${{ github.run_id }}
           path: ${{ runner.temp }}/jim-bash-result
-      - name: Publish terminal output in same Issue
+      - name: Checkout trusted publisher
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Publish Bash output to linked PRIVATE-PBF Issue only
         env:
-          GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+          PRIVATE_PBF_TOKEN: ${{ secrets.PRIVATE_PBF_TOKEN }}
+          EVIDENCE_FILE: ${{ runner.temp }}/jim-bash-result/jim-bash-comment.md
+          EVIDENCE_KIND: bash
         shell: bash
         run: |
           set -euo pipefail
-          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/jim-bash-result/jim-bash-comment.md"
+          node .github/mjs/publish-jim-private.mjs
