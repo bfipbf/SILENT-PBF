@@ -1,0 +1,52 @@
+name: SF - BFI_PROD read-only API
+on:
+  issues:
+    types: [opened, edited]
+permissions:
+  contents: read
+  issues: read
+concurrency:
+  group: sf-api-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+jobs:
+  sf-read-only:
+    if: >-
+      contains(fromJSON('["jimmytobing","098595","bfipbf"]'), github.actor) &&
+      contains(fromJSON('["jimmytobing","098595","bfipbf"]'), github.event.issue.user.login) &&
+      !github.event.issue.pull_request &&
+      contains(github.event.issue.body, '### Sf Request')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      ISSUE_BODY: ${{ github.event.issue.body }}
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      SF_BFI_PROD_LOGIN_URL: ${{ vars.SF_BFI_PROD_LOGIN_URL }}
+      SF_GATEWAY_ENABLED: ${{ vars.SF_GATEWAY_ENABLED }}
+      SF_CLIENT_ID: ${{ secrets.SF_BFI_PROD_CLIENT_ID }}
+      SF_CLIENT_SECRET: ${{ secrets.SF_BFI_PROD_CLIENT_SECRET }}
+      PRIVATE_PBF_TOKEN: ${{ secrets.PRIVATE_PBF_TOKEN }}
+      EVIDENCE_FILE: ${{ runner.temp }}/sf-evidence.md
+    steps:
+      - name: Checkout without persisted credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Verify exact heading and required private evidence token
+        shell: bash
+        run: |
+          if [[ -z "$PRIVATE_PBF_TOKEN" ]]; then
+            echo 'BLOCKED - private evidence destination unavailable'
+            exit 1
+          fi
+          if [[ "$(printf '%s\n' "$ISSUE_BODY" | grep -Ec '^### Sf Request[[:space:]]*$')" != "1" ]]; then
+            echo 'BLOCKED - invalid request heading'
+            exit 1
+          fi
+      - name: Call guarded read-only Salesforce API
+        id: sf
+        shell: bash
+        run: node .github/mjs/sf-readonly.mjs
+      - name: Publish private evidence only
+        if: always() && steps.sf.outcome != 'skipped'
+        shell: bash
+        run: node .github/mjs/private-evidence.mjs
