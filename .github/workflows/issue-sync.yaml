@@ -21,7 +21,6 @@ jobs:
     env:
       PRIVATE_PBF_TOKEN: ${{ secrets.PRIVATE_PBF_TOKEN }}
       PUBLIC_TOKEN: ${{ github.token }}
-      EVENT_PATH: ${{ github.event_path }}
       EVENT_NAME: ${{ github.event_name }}
       EVENT_ACTION: ${{ github.event.action }}
     steps:
