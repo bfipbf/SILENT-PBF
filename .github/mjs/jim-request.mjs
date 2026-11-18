@@ -1,193 +1,159 @@
 import fs from "node:fs/promises";
+import dns from "node:dns/promises";
+import net from "node:net";
 
-// Satu endpoint POST, satu fetch, API key dibaca dari GitHub Secret.
-// JSON pada Issue hanya berisi body request, bukan URL atau credentials.
-var endpoint = "https://gateway.prod.bravo.bfi.co.id/sf/pbf/ro/dupcheck";
-var apiKey = process.env.SF_BFI_PROD_APIKEY;
-var issueBody = process.env.ISSUE_BODY || "";
-var evidenceFile = (process.env.RUNNER_TEMP || "/tmp") + "/jim-request-comment.md";
-var fence = String.fromCharCode(96, 96, 96);
+const apiKey = process.env.SF_BFI_PROD_APIKEY || "";
+const issueBody = process.env.ISSUE_BODY || "";
+const evidenceFile = (process.env.RUNNER_TEMP || "/tmp") + "/jim-request-comment.md";
+const fence = "\x60\x60\x60";
+const credentialOrigin = "https://gateway.prod.bravo.bfi.co.id";
 
 function readRequest(text) {
-    var lines = text.split(/\r?\n/);
-    var headingCount = 0;
-    var inSection = false;
-    var section = [];
-
-    for (var i = 0; i < lines.length; i++) {
-        if (/^### Jim Request\s*$/.test(lines[i])) {
-            headingCount++;
-            inSection = true;
-            continue;
-        }
-        if (inSection && /^#{1,3}\s+/.test(lines[i])) {
-            inSection = false;
-        }
-        if (inSection) {
-            section.push(lines[i]);
-        }
+  const lines = text.split(/\r?\n/);
+  const sections = [];
+  let section = null;
+  for (const line of lines) {
+    if (/^### Jim Request\s*$/.test(line)) {
+      section = [];
+      sections.push(section);
+    } else if (section && /^#{1,3}\s+/.test(line)) {
+      section = null;
+    } else if (section) {
+      section.push(line);
     }
-    if (headingCount !== 1) {
-        throw new Error("Harus ada tepat satu heading ### Jim Request.");
-    }
-
-    var pattern = new RegExp("(?:^|\\n)" + fence + "json[ \\t]*\\n([\\s\\S]*?)\\n" + fence + "[ \\t]*(?=\\n|$)", "gi");
-    var matches = [];
-    var bodyText = section.join("\n");
-    var match = pattern.exec(bodyText);
-    while (match) {
-        matches.push(match[1]);
-        match = pattern.exec(bodyText);
-    }
-    if (matches.length !== 1 || Buffer.byteLength(matches[0], "utf8") > 10000) {
-        throw new Error("Jim Request wajib berisi satu JSON code block maksimal 10 KB.");
-    }
-
-    var request;
-    try {
-        request = JSON.parse(matches[0]);
-    } catch (error) {
-        throw new Error("JSON Jim Request tidak valid.");
-    }
-    return validateRequest(request);
+  }
+  if (sections.length !== 1) throw new Error("Harus ada tepat satu heading ### Jim Request.");
+  const matches = [...sections[0].join("\n").matchAll(/(?:^|\n)\x60{3}json[ \t]*\n([\s\S]*?)\n\x60{3}[ \t]*(?=\n|$)/gi)];
+  if (matches.length !== 1 || Buffer.byteLength(matches[0][1], "utf8") > 10000) {
+    throw new Error("Jim Request wajib berisi satu JSON code block maksimal 10 KB.");
+  }
+  let request;
+  try { request = JSON.parse(matches[0][1]); }
+  catch { throw new Error("JSON Jim Request tidak valid."); }
+  if (!request || Array.isArray(request) || typeof request !== "object") {
+    throw new Error("Request harus JSON object.");
+  }
+  if (Object.keys(request).some(k => !["url", "method", "body"].includes(k))) {
+    throw new Error("Property yang didukung: url, method, body.");
+  }
+  if (typeof request.url !== "string" || request.url.length > 2048) {
+    throw new Error("url wajib berupa string maksimal 2048 karakter.");
+  }
+  let url;
+  try { url = new URL(request.url); } catch { throw new Error("URL tidak valid."); }
+  if (url.protocol !== "https:" || url.username || url.password || url.hash) {
+    throw new Error("Hanya URL HTTPS tanpa credentials atau fragment yang diperbolehkan.");
+  }
+  const method = String(request.method || "GET").toUpperCase();
+  if (!["GET", "HEAD", "POST"].includes(method)) {
+    throw new Error("Method yang didukung: GET, HEAD, POST.");
+  }
+  if (method !== "POST" && Object.hasOwn(request, "body")) {
+    throw new Error("body hanya dapat digunakan untuk POST.");
+  }
+  if (method === "POST" && (!Object.hasOwn(request, "body") || request.body === null)) {
+    throw new Error("POST memerlukan property body.");
+  }
+  return { url, method, body: request.body };
 }
 
-function validateRequest(request) {
-    if (!request || Array.isArray(request) || typeof request !== "object") {
-        throw new Error("Request harus berupa JSON object.");
+// Protect the runner from local-network targets; this is not a hostname/path allowlist.
+async function checkDestination(url) {
+  const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+  if (hostname === "localhost" || hostname.endsWith(".localhost") ||
+      hostname.endsWith(".local") || net.isIP(hostname)) {
+    throw new Error("URL ke localhost, jaringan lokal, atau alamat IP langsung ditolak.");
+  }
+  const records = await dns.lookup(hostname, { all: true });
+  if (!records.length) throw new Error("DNS target tidak ditemukan.");
+  for (const { address } of records) {
+    const v4 = net.isIP(address) === 4 ? address.split(".").map(Number) : null;
+    if (v4 && (v4[0] === 0 || v4[0] === 10 || v4[0] === 127 ||
+      v4[0] >= 224 || (v4[0] === 169 && v4[1] === 254) ||
+      (v4[0] === 172 && v4[1] >= 16 && v4[1] <= 31) ||
+      (v4[0] === 192 && v4[1] === 168) ||
+      (v4[0] === 100 && v4[1] >= 64 && v4[1] <= 127) ||
+      (v4[0] === 192 && v4[1] === 0 && v4[2] === 0))) {
+      throw new Error("URL mengarah ke alamat jaringan non-public.");
     }
-    var keys = Object.keys(request);
-    if (keys.length !== 1 || keys[0] !== "content") {
-        throw new Error("Request hanya boleh berisi property content.");
+    if (net.isIP(address) === 6 && (
+      address === "::1" || address === "::" ||
+      /^f[cd]/i.test(address) || /^fe[89ab]/i.test(address) ||
+      /^::ffff:/i.test(address))) {
+      throw new Error("URL mengarah ke alamat jaringan non-public.");
     }
-    if (!Array.isArray(request.content) || request.content.length < 1 || request.content.length > 20) {
-        throw new Error("content harus array berisi 1 sampai 20 item.");
-    }
-    for (var i = 0; i < request.content.length; i++) {
-        var item = request.content[i];
-        if (!item || typeof item !== "object" || Array.isArray(item)) {
-            throw new Error("Setiap item content harus object.");
-        }
-        var fields = Object.keys(item).sort().join(",");
-        if (fields !== "agreement_id,product_id,status") {
-            throw new Error("Item hanya boleh memiliki agreement_id, product_id, status.");
-        }
-        if (typeof item.agreement_id !== "string" || !/^\d{1,30}$/.test(item.agreement_id)) {
-            throw new Error("agreement_id harus teks numerik 1 sampai 30 digit.");
-        }
-        if (!Number.isInteger(item.product_id) || item.product_id < 1 || item.product_id > 99999) {
-            throw new Error("product_id harus bilangan bulat positif.");
-        }
-        if (typeof item.status !== "string" || !/^[A-Z_]{1,20}$/.test(item.status)) {
-            throw new Error("status harus teks uppercase maksimal 20 karakter.");
-        }
-    }
-    return request;
+  }
 }
 
-function maskSensitive(value) {
-    if (Array.isArray(value)) {
-        var list = [];
-        for (var i = 0; i < value.length; i++) {
-            list.push(maskSensitive(value[i]));
-        }
-        return list;
-    }
-    if (value && typeof value === "object") {
-        var output = {};
-        var keys = Object.keys(value);
-        for (var j = 0; j < keys.length; j++) {
-            var key = keys[j];
-            if (/^(x[-_])?api[-_]?key$/i.test(key)) {
-                output[key] = "[HIDDEN]";
-            } else {
-                output[key] = maskSensitive(value[key]);
-            }
-        }
-        return output;
-    }
-    if (typeof value === "string" && apiKey) {
-        return value.split(apiKey).join("[HIDDEN]");
-    }
-    return value;
+function hideSecrets(value) {
+  let out = String(value ?? "");
+  if (apiKey) out = out.split(apiKey).join("[HIDDEN]");
+  return out;
 }
-
-function shellQuote(value) {
-    return "'" + String(value).split("'").join("'\\''") + "'";
-}
+function quote(value) { return "'" + String(value).replaceAll("'", "'\\''") + "'"; }
 async function main() {
-    var request;
-    var response;
-    var result;
-    var errorMessage = "";
-    try {
-        request = readRequest(issueBody);
-        if (!apiKey) {
-            throw new Error("GitHub Secret SF_BFI_PROD_APIKEY belum tersedia.");
-        }
-
-        // Satu-satunya fetch pada gateway ini.
-        response = await fetch(endpoint, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "X-Apikey": apiKey
-            },
-            body: JSON.stringify(request),
-            redirect: "error",
-            signal: AbortSignal.timeout(30000)
-        });
-        var text = await response.text();
-        if (Buffer.byteLength(text, "utf8") > 50000) {
-            result = {notice: "Response melebihi 50 KB; tidak ditampilkan."};
-        } else {
-            try {
-                result = JSON.parse(text);
-            } catch (error) {
-                result = {text: text.slice(0, 2000)};
-            }
-        }
-        if (!response.ok) {
-            errorMessage = "Gateway HTTP " + response.status;
-            process.exitCode = 1;
-        }
-    } catch (error) {
-        errorMessage = error.message;
-        process.exitCode = 1;
+  let request;
+  let response;
+  let result = {};
+  let errorMessage = "";
+  let sentBody;
+  try {
+    request = readRequest(issueBody);
+    await checkDestination(request.url);
+    const headers = { "Accept": "application/json" };
+    // Never forward the production key to an arbitrary destination.
+    if (request.url.origin === credentialOrigin) {
+      if (!apiKey) throw new Error("GitHub Secret SF_BFI_PROD_APIKEY belum tersedia.");
+      headers["X-Apikey"] = apiKey;
     }
-
-    var status = response ? response.status : "N/A";
-    var state = errorMessage ? "FAILED" : "SUCCESS";
-    var lines = [
-        "## Jim API — Dupcheck PROD — Issue #" + (process.env.ISSUE_NUMBER || "?"),
-        "",
-        "Status: **" + state + "** · HTTP " + status + " · POST",
-        "",
-        "<details>",
-        "<summary>cURL (API key masked)</summary>",
-        "",
-        fence + "bash",
-        "curl --location " + shellQuote(endpoint) + " \\",
-        "  --header 'Content-Type: application/json' \\",
-        "  --header 'Accept: application/json' \\",
-        "  --header 'X-Apikey: [HIDDEN]' \\",
-        "  --data " + shellQuote(JSON.stringify(maskSensitive(request || {}), null, 2)),
-        fence,
-        "",
-        "</details>",
-        "",
-        "<details>",
-        "<summary>Response JSON — HTTP " + status + "</summary>",
-        ""
-    ];
-    if (errorMessage) {
-        lines.push("Error: " + maskSensitive(errorMessage), "");
+    if (request.method === "POST") {
+      sentBody = JSON.stringify(request.body);
+      if (Buffer.byteLength(sentBody, "utf8") > 10000) {
+        throw new Error("POST body maksimal 10 KB.");
+      }
+      headers["Content-Type"] = "application/json";
     }
-    lines.push(fence + "json", JSON.stringify(maskSensitive(result || {}), null, 2), fence, "", "</details>");
+    response = await fetch(request.url, {
+      method: request.method,
+      headers,
+      ...(sentBody === undefined ? {} : { body: sentBody }),
+      redirect: "error",
+      signal: AbortSignal.timeout(30000)
+    });
+    const responseText = await response.text();
+    if (Buffer.byteLength(responseText, "utf8") > 50000) {
+      result = { notice: "Response melebihi 50 KB; tidak ditampilkan." };
+    } else {
+      try { result = JSON.parse(responseText); }
+      catch { result = { text: responseText.slice(0, 2000) }; }
+    }
+    if (!response.ok) {
+      errorMessage = "Gateway HTTP " + response.status;
+      process.exitCode = 1;
+    }
+  } catch (error) {
+    errorMessage = error.message;
+    process.exitCode = 1;
+  }
 
-    await fs.writeFile(evidenceFile, lines.join("\n"), {mode: 0o600});
-    console.log("Jim API " + state + " HTTP " + status + " (detail di Issue).");
+  const status = response ? response.status : "N/A";
+  const method = request?.method || "N/A";
+  const curl = request
+    ? ["curl --location --request " + method + " " + quote(request.url.toString()),
+       "  --header 'Accept: application/json'",
+       ...(request.url.origin === credentialOrigin ? ["  --header 'X-Apikey: [HIDDEN]'"] : []),
+       ...(sentBody === undefined ? [] : ["  --header 'Content-Type: application/json'", "  --data " + quote(sentBody)])].join(" \\\n")
+    : "Request tidak valid; cURL tidak tersedia.";
+  const lines = [
+    "## Jim API — Issue #" + (process.env.ISSUE_NUMBER || "?"), "",
+    "Status: **" + (errorMessage ? "FAILED" : "SUCCESS") + "** · HTTP " + status + " · " + method, "",
+    "<details>", "<summary>cURL (API key masked)</summary>", "", fence + "bash",
+    hideSecrets(curl), fence, "", "</details>", "",
+    "<details>", "<summary>Response JSON — HTTP " + status + "</summary>", ""
+  ];
+  if (errorMessage) lines.push("Error: " + hideSecrets(errorMessage), "");
+  lines.push(fence + "json", hideSecrets(JSON.stringify(result, null, 2)), fence, "", "</details>");
+  await fs.writeFile(evidenceFile, lines.join("\n"), { mode: 0o600 });
+  console.log("Jim API " + (errorMessage ? "FAILED" : "SUCCESS") + " HTTP " + status + " (detail di Issue).");
 }
-
 await main();
