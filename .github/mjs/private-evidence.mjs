@@ -22,7 +22,7 @@ async function api(path, method='GET', body) {
 async function list(path) {
   const result=[];
   for (let page=1;page<=20;page++) {
-    const rows=await api(path+'?per_page=100&page='+page);
+    const rows=await api(path+(path.includes('?')?'&':'?')+'per_page=100&page='+page);
     if (!Array.isArray(rows)) throw Error('Private evidence pagination failed');
     result.push(...rows);
     if (rows.length<100) return result;
@@ -30,7 +30,7 @@ async function list(path) {
   throw Error('Private evidence pagination limit');
 }
 const sourceMarker = '<!-- silent-pbf-issue:' + issueNumber + ' -->';
-const issues = (await list('/issues')).filter(i=> !i.pull_request &&
+const issues = (await list('/issues?state=all')).filter(i=> !i.pull_request &&
   typeof i.body==='string' && i.body.includes(sourceMarker));
 if(issues.length!==1) throw Error('Private evidence needs exactly one linked mirror');
 const data=await fs.readFile(evidenceFile);
