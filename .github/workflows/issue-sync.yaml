@@ -31,6 +31,10 @@ jobs:
           persist-credentials: false
       - name: Ensure private token is configured
         shell: bash
-        run: test -n "$PRIVATE_PBF_TOKEN" || { echo 'BLOCKED: PRIVATE_PBF_TOKEN is missing'; exit 1; }
+        run: |
+          if [[ -z "$PRIVATE_PBF_TOKEN" ]]; then
+            echo "BLOCKED - PRIVATE_PBF_TOKEN is missing"
+            exit 1
+          fi
       - name: Upsert private issue and comment
         run: node .github/mjs/mirror-issue.mjs
