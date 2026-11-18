@@ -48,9 +48,17 @@ It upserts one PRIVATE-PBF comment per run ID and suppresses content from public
 - [x] SILENT #2 → PRIVATE #1: create mirror and reverse backlink
 - [x] Comment create and update reused original mirror comment ID
 - [x] Subsequent Issue title/body edit changed PRIVATE #1 without creating a second Issue (run 44234576575)
-- [ ] Replaying an identical event does not create another Issue/comment
+- [x] Subsequent Issue edit uses the same private Issue (run 44234576575); exact event replay not tested
 - [ ] Private evidence publisher smoke test
 - [ ] SIT read-only Salesforce gateway
 - [ ] Safe PROD cutover
 
 Do not treat this document or a GitHub Actions green status as LIVE Salesforce verification.
+
+## SF read-only workflow (staged)
+
+`.github/workflows/sf.yaml` invokes `.github/mjs/sf-readonly.mjs` and publishes evidence only via `.github/mjs/private-evidence.mjs`.
+
+When merged, this workflow is event-registered but **will not call Salesforce unless** `SF_GATEWAY_ENABLED=true` and the PROD OAuth credentials are configured. No POST endpoints, Sf Bash or Jim Bash are supported in this staged version. Source Issue must contain a single `### Sf Request` section with one JSON block. The only supported API operation is GET with a Salesforce SOQL/Tooling query URL on the pinned PROD host. Issue body remains visible publicly, so never include customer data or credentials. Private evidence publisher records the result in the linked PRIVATE-PBF issue.
+
+`jim.yaml` is not included because existing Jim Request allows external POST and existing Jim Bash executes arbitrary scripts; neither has passed migration safety review.
