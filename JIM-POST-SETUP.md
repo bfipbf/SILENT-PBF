@@ -1,10 +1,10 @@
 # Jim POST — protected execution
 
-A new `jim-post.yaml` workflow is **manual** and intentionally separate from the public Issue `jim.yaml` GET/HEAD workflow.
+The single `.github/workflows/jim.yaml` provides automatic Issue-driven GET/HEAD and a separately approved, manually dispatched POST job. The POST job is not triggered by Issue edits.
 
 ## How it works
 1. Create a **PRIVATE-PBF** Issue with exact heading `### Jim POST` and one JSON code fence containing `requestId`, `url`, `body`, and `reason`.
-2. Run the workflow from **SILENT-PBF → Actions → Jim POST - protected private request**, supplying the PRIVATE-PBF Issue number and matching request ID.
+2. Run the workflow from **SILENT-PBF → Actions → Jim - External Services GET HEAD and approved POST**, supplying the PRIVATE-PBF Issue number and matching request ID.
 3. The `prod-write-approval` environment must have non-empty required reviewers and prevent self-review. The script validates configuration and fails closed if it cannot verify it.
 4. After protected approval, the script checks the actor, private Issue author, exact manifest, prior replay marker, OAuth, and LIVE External Service/Named Credential origin. It writes a **STARTED** marker to the PRIVATE Issue before the POST, preventing retry after uncertain outcomes.
 5. POST uses only the supplied HTTPS URL on a LIVE-registered Named Credential origin; no arbitrary public Issue payload is executed. Response evidence is written only to the PRIVATE Issue. Access tokens and API keys are never printed.
