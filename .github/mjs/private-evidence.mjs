@@ -30,8 +30,14 @@ async function list(path) {
   throw Error('Private evidence pagination limit');
 }
 const sourceMarker = '<!-- silent-pbf-issue:' + issueNumber + ' -->';
-const issues = (await list('/issues?state=all')).filter(i=> !i.pull_request &&
-  typeof i.body==='string' && i.body.includes(sourceMarker));
+let issues=[];
+for(let attempt=0;attempt<8;attempt++) {
+  issues=(await list('/issues?state=all')).filter(i=> !i.pull_request &&
+    typeof i.body==='string' && i.body.includes(sourceMarker));
+  if(issues.length>1) throw Error('Private evidence mirror ambiguous');
+  if(issues.length===1) break;
+  await new Promise(resolve=>setTimeout(resolve,1500));
+}
 if(issues.length!==1) throw Error('Private evidence needs exactly one linked mirror');
 const data=await fs.readFile(evidenceFile);
 const maxBytes=58000;
