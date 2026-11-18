@@ -1,4 +1,4 @@
-name: SF - WDE API (Issue request)
+name: SF - Salesforce API (Issue request)
 
 on:
   issues:
@@ -26,7 +26,6 @@ jobs:
       SF_BFI_PROD_LOGIN_URL: ${{ vars.SF_BFI_PROD_LOGIN_URL }}
       ISSUE_BODY: ${{ github.event.issue.body }}
       ISSUE_NUMBER: ${{ github.event.issue.number }}
-      GH_TOKEN: ${{ github.token }}
       PRIVATE_PBF_TOKEN: ${{ secrets.PRIVATE_PBF_TOKEN }}
     steps:
       - name: Checkout repository
@@ -47,17 +46,15 @@ jobs:
         run: |
           set -euo pipefail
           node .github/mjs/sf-request.mjs
-      - name: Publish result in the same Issue
+      - name: Publish Sf Request evidence to linked PRIVATE-PBF Issue only
         if: always() && steps.route.outputs.valid == 'true' && steps.jim.outcome != 'skipped'
+        env:
+          EVIDENCE_FILE: ${{ runner.temp }}/sf-request-comment.md
+          EVIDENCE_KIND: sf-request
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -s "$RUNNER_TEMP/sf-request-comment.md" ]]; then
-            gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/sf-request-comment.md"
-          else
-            echo 'No evidence file generated; see job logs.' >&2
-            exit 1
-          fi
+          node .github/mjs/publish-jim-private.mjs
 
   sf-bash:
     if: >-
@@ -87,6 +84,7 @@ jobs:
             echo 'valid=false' >> "$GITHUB_OUTPUT"
           fi
       - name: Install Salesforce CLI from official compressed TAR (no npm/cache)
+        id: install
         if: steps.route.outputs.valid == 'true'
         shell: bash
         run: |
@@ -101,7 +99,8 @@ jobs:
           rm -f "$CLI_TAR"
           echo "$CLI_DIR/bin" >> "$GITHUB_PATH"
           "$CLI_DIR/bin/sf" --version
-      - name: Authenticate Salesforce CLI to WDE (hdbsf)
+      - name: Authenticate Salesforce CLI to configured Salesforce instance
+        id: auth
         if: steps.route.outputs.valid == 'true'
         shell: bash
         env:
@@ -116,6 +115,27 @@ jobs:
         if: steps.route.outputs.valid == 'true'
         shell: bash
         run: node .github/mjs/sf-bash.mjs
+      - name: Prepare Sf Bash failure evidence if execution did not start
+        if: always() && steps.route.outputs.valid == 'true'
+        env:
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          AUTH_OUTCOME: ${{ steps.auth.outcome }}
+          BASH_OUTCOME: ${{ steps.bash.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE="$RUNNER_TEMP/sf-bash-comment.md"
+          if [[ ! -s "$FILE" ]]; then
+            {
+              echo "## Sf Bash — Issue #$ISSUE_NUMBER"
+              echo
+              echo "Status: **FAILED before Bash result**"
+              echo
+              echo "cli_install=$INSTALL_OUTCOME; auth=$AUTH_OUTCOME; execution=$BASH_OUTCOME"
+              echo
+              echo "See GitHub Actions job logs for the failed prerequisite. No Salesforce success is claimed."
+            } > "$FILE"
+          fi
       - name: Upload Sf Bash evidence
         if: always() && steps.route.outputs.valid == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -138,18 +158,24 @@ jobs:
         with:
           name: sf-bash-${{ github.run_id }}
           path: ${{ runner.temp }}/sf-bash-result
-      - name: Publish Sf Bash output in same Issue
+      - name: Checkout trusted private evidence publisher
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Publish Sf Bash evidence to linked PRIVATE-PBF Issue only
         env:
-          GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+          PRIVATE_PBF_TOKEN: ${{ secrets.PRIVATE_PBF_TOKEN }}
+          EVIDENCE_FILE: ${{ runner.temp }}/sf-bash-result/sf-bash-comment.md
+          EVIDENCE_KIND: sf-bash
         shell: bash
         run: |
           set -euo pipefail
-          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/sf-bash-result/sf-bash-comment.md"
+          node .github/mjs/publish-jim-private.mjs
 
   sf-deploy:
     if: >-
-      github.repository == 'jimmytobing/Syntetic-Wisdom' &&
+      github.repository == 'bfipbf/SILENT-PBF' &&
       contains(fromJSON('["jimmytobing","098595","bfipbf"]'), github.actor) &&
       contains(fromJSON('["jimmytobing","098595","bfipbf"]'), github.event.issue.user.login) &&
       contains(github.event.issue.body, '### Sf Deploy')
@@ -169,7 +195,7 @@ jobs:
         with:
           persist-credentials: false
           path: trusted
-      - name: Strict Sf Deploy request/actor/org preflight
+      - name: Strict Sf Deploy request and actor preflight
         id: route
         shell: bash
         run: node trusted/.github/mjs/sf-bash.mjs preflight
@@ -187,7 +213,7 @@ jobs:
         run: node trusted/.github/mjs/sf-bash.mjs inspect
       - name: Install official Salesforce CLI (no npm)
         id: install
-        if: steps.route.outcome == 'success'
+        if: steps.inspect.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
@@ -202,15 +228,15 @@ jobs:
           "$CLI_DIR/bin/sf" --version
       - name: Authenticate CLI using trusted gateway script
         id: auth
-        if: steps.route.outcome == 'success'
+        if: steps.install.outcome == 'success'
         shell: bash
         env:
           SF_CLIENT_ID: ${{ secrets.SF_BFI_PROD_CLIENT_ID || secrets.SF_CLIENT_ID }}
           SF_CLIENT_SECRET: ${{ secrets.SF_BFI_PROD_CLIENT_SECRET || secrets.SF_CLIENT_SECRET }}
         run: node trusted/.github/mjs/sf-bash-auth.mjs
-      - name: Verify Salesforce LIVE Org ID and execute requested validate/deploy
+      - name: Execute requested Salesforce validate/deploy
         id: execute
-        if: steps.route.outcome == 'success'
+        if: steps.auth.outcome == 'success'
         shell: bash
         run: node trusted/.github/mjs/sf-bash.mjs run
       - name: Prepare evidence if CLI or checkout failed before execution
@@ -227,7 +253,7 @@ jobs:
           FILE="$RUNNER_TEMP/sf-deploy-comment.md"
           if [[ ! -s "$FILE" ]]; then
             {
-              echo "## Sf Deploy — WDE — Issue $ISSUE_NUMBER"
+              echo "## Sf Deploy — Issue $ISSUE_NUMBER"
               echo
               echo "Status: **FAILED before Salesforce result**"
               echo
@@ -258,12 +284,17 @@ jobs:
         with:
           name: sf-deploy-${{ github.run_id }}
           path: ${{ runner.temp }}/sf-deploy-result
-      - name: Publish response in the originating Issue
+      - name: Checkout trusted publisher
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Publish Sf Deploy evidence to linked PRIVATE-PBF Issue only
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+          PRIVATE_PBF_TOKEN: ${{ secrets.PRIVATE_PBF_TOKEN }}
+          EVIDENCE_FILE: ${{ runner.temp }}/sf-deploy-result/sf-deploy-comment.md
+          EVIDENCE_KIND: sf-deploy
         run: |
           set -euo pipefail
-          test -s "$RUNNER_TEMP/sf-deploy-result/sf-deploy-comment.md"
-          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/sf-deploy-result/sf-deploy-comment.md"
+          node .github/mjs/publish-jim-private.mjs
