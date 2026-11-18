@@ -1,4 +1,4 @@
-name: SF - WDE API (Issue request)
+name: SF - Salesforce API (Issue request)
 
 on:
   issues:
@@ -98,7 +98,7 @@ jobs:
           rm -f "$CLI_TAR"
           echo "$CLI_DIR/bin" >> "$GITHUB_PATH"
           "$CLI_DIR/bin/sf" --version
-      - name: Authenticate Salesforce CLI to WDE (hdbsf)
+      - name: Authenticate Salesforce CLI to configured Salesforce instance
         if: steps.route.outputs.valid == 'true'
         shell: bash
         env:
@@ -166,7 +166,7 @@ jobs:
         with:
           persist-credentials: false
           path: trusted
-      - name: Strict Sf Deploy request/actor/org preflight
+      - name: Strict Sf Deploy request and actor preflight
         id: route
         shell: bash
         run: node trusted/.github/mjs/sf-bash.mjs preflight
@@ -205,7 +205,7 @@ jobs:
           SF_CLIENT_ID: ${{ secrets.SF_BFI_PROD_CLIENT_ID || secrets.SF_CLIENT_ID }}
           SF_CLIENT_SECRET: ${{ secrets.SF_BFI_PROD_CLIENT_SECRET || secrets.SF_CLIENT_SECRET }}
         run: node trusted/.github/mjs/sf-bash-auth.mjs
-      - name: Verify Salesforce LIVE Org ID and execute requested validate/deploy
+      - name: Execute requested Salesforce validate/deploy
         id: execute
         if: steps.route.outcome == 'success'
         shell: bash
