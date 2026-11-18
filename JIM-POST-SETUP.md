@@ -1,32 +1,32 @@
-# Jim POST — protected execution
+# Jim POST from GitHub Issue (single jim.yaml)
 
-The single `.github/workflows/jim.yaml` provides automatic Issue-driven GET/HEAD and a separately approved, manually dispatched POST job. The POST job is not triggered by Issue edits.
+The single `.github/workflows/jim.yaml` receives Issue events. **GET/HEAD** still runs automatically under `### Jim Request`. **POST** starts from a new or edited public SILENT-PBF Issue under `### Jim POST Request`, with a protected environment approval before any write can be attempted. Do not use Actions → Run workflow.
 
-## How it works
-1. Create a **PRIVATE-PBF** Issue with exact heading `### Jim POST` and one JSON code fence containing `requestId`, `url`, `body`, and `reason`.
-2. Run the workflow from **SILENT-PBF → Actions → Jim - External Services GET HEAD and approved POST**, supplying the PRIVATE-PBF Issue number and matching request ID.
-3. The `prod-write-approval` environment must have non-empty required reviewers and prevent self-review. The script validates configuration and fails closed if it cannot verify it.
-4. After protected approval, the script checks the actor, private Issue author, exact manifest, prior replay marker, OAuth, and LIVE External Service/Named Credential origin. It writes a **STARTED** marker to the PRIVATE Issue before the POST, preventing retry after uncertain outcomes.
-5. POST uses only the supplied HTTPS URL on a LIVE-registered Named Credential origin; no arbitrary public Issue payload is executed. Response evidence is written only to the PRIVATE Issue. Access tokens and API keys are never printed.
+## Prepare a private manifest first
 
-Example PRIVATE Issue body (illustrative only; don't run):
-```markdown
-### Jim POST
+Create a **PRIVATE-PBF** Issue with a single `### Jim POST` heading and a JSON code block holding `requestId`, `url`, `body`, and `reason`. The payload and any customer details must exist **only** in PRIVATE-PBF. The manifest author must be allowlisted.
+
+## Public SILENT-PBF Issue body
+
+Use this example with your real PRIVATE-PBF issue number and matching unique request ID (not as a production execution test):
+
+~~~markdown
+### Jim POST Request
 
 ```json
 {
-  "requestId": "PBF-20261118-DUPCHECK-001",
-  "url": "https://gateway.prod.bravo.bfi.co.id/sf/pbf/ro/dupcheck",
-  "body": {"content": []},
-  "reason": "Authorized targeted duplicate check against production endpoint"
+  "privateIssue": 21,
+  "requestId": "PBF-20261118-TEST-0001"
 }
 ```
-```
+~~~
 
-**Security and scope**
-- This can make a business-affecting POST. Never run without confirming the endpoint contract, request payload, and actual approval reviewers.
-- A successful Actions run is not proof of business success; inspect HTTP and response in PRIVATE-PBF.
-- A started claim is single-use, including failure/timeout. Do not automatically retry unknown outcomes.
-- This is not Salesforce generic DML, deploy or arbitrary Jim Bash.
-- A public repo's workflow code changes must require code review and branch protections; otherwise contributors with write access could weaken execution gates.
-- GitHub connector cannot currently verify/update the environment reviewers. A smoke test without an actual POST is required prior to enabling execution.
+The public body MUST NOT include the actual POST payload, credentials, or sensitive records. Only allowlisted issue actor and author can submit. Editing the Issue can retrigger a new run, but the private execution marker blocks ordinary replay after a claim; unknown outcomes must be investigated before any new request ID is issued.
+
+## Approval
+
+The `approved-post` job requires the `prod-write-approval` GitHub Environment with independent required reviewers and self-review disabled. The script checks those rules and fails closed if unverifiable. Approval happens in GitHub's protected environment interface, not via the public Issue body. A public Issue alone is **not** sufficient authorization to change production data.
+
+After approval the job verifies the private manifest, request ID, LIVE Named Credential origin and duplicate marker, writes a STARTED claim privately, then sends one POST. Business response and evidence are posted privately.
+
+**Not yet verified:** protected reviewers on the target repo, positive POST runtime, HTTP response or business outcome. Do not perform a mutating smoke test merely to verify routing.
