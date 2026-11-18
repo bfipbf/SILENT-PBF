@@ -119,8 +119,13 @@ try{
   try{return JSON.parse(raw)}catch{return {text:raw}}})();
  status=r.ok?'SUCCESS':'FAILED';
 }catch{status='UNKNOWN_NETWORK_OUTCOME'}
+const scrub = value => {
+  let s=JSON.stringify(value);
+  for(const secret of [apiKey,clientId,clientSecret,accessToken]) if(secret) s=s.split(secret).join('[HIDDEN]');
+  return JSON.parse(s);
+};
 const result={kind:'JIM_POST',requestId:expected,runId:run,status,http,
-  payloadSha256:sha,endpoint:url.origin+url.pathname,response};
+  payloadSha256:sha,endpoint:url.origin+url.pathname,response:scrub(response)};
 await github(PRIVATE,'/issues/'+issueNo+'/comments',token,'POST',
  {body:'## Jim POST result (private)\n'+f+'json\n'+JSON.stringify(result,null,2)+'\n'+f});
 console.log('Jim POST finished; response stored privately, never in public logs');
