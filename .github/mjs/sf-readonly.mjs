@@ -13,7 +13,7 @@ try {
   const heads = [...body.matchAll(/^### Sf Request[ \t]*$/gm)];
   if (heads.length !== 1) throw Error('REQUEST_HEADING_INVALID');
   const section = body.slice(heads[0].index + heads[0][0].length).split(/^#{1,3}\s+/m)[0];
-  const fences = [...section.matchAll(/``json[ \t]*\r?\n([\s\S]*?)\r?\n``/gi)];
+  const fences = [...section.matchAll(/```json[ \t]*\r?\n([\s\S]*?)\r?\n```/gi)];
   if (fences.length !== 1 || fences[0][1].length > 10000) throw Error('JSON_BLOCK_INVALID');
   const input = JSON.parse(fences[0][1]);
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw Error('INVALID_REQUEST');
@@ -53,6 +53,6 @@ try {
   failed=true;
   summary.error=String(e.message || 'UNKNOWN').replace(/[^A-Z_0-9]/g,'_').slice(0,80);
 }
-await fs.writeFile(file, '# Salesforce read-only evidence\n\n'+'``json\n'+JSON.stringify(summary,null,2)+'\n``\n',{mode:0o600});
+await fs.writeFile(file, '# Salesforce read-only evidence\n\n'+'```json\n'+JSON.stringify(summary,null,2)+'\n```\n',{mode:0o600});
 console.log('SF read-only request: '+(failed?'FAILED':'SUCCESS')+' (private evidence only)');
 if(failed) process.exitCode=1;
