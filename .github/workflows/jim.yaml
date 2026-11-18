@@ -15,8 +15,8 @@ concurrency:
 jobs:
   jim-request:
     if: >-
-      contains(fromJSON('["jimmytobing","098595"]'), github.actor) &&
-      contains(fromJSON('["jimmytobing","098595"]'), github.event.issue.user.login) &&
+      contains(fromJSON('["jimmytobing","098595","bfipbf"]'), github.actor) &&
+      contains(fromJSON('["jimmytobing","098595","bfipbf"]'), github.event.issue.user.login) &&
       contains(github.event.issue.body, '### Jim Request')
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -60,8 +60,8 @@ jobs:
 
   jim-bash:
     if: >-
-      contains(fromJSON('["jimmytobing","098595"]'), github.actor) &&
-      contains(fromJSON('["jimmytobing","098595"]'), github.event.issue.user.login) &&
+      contains(fromJSON('["jimmytobing","098595","bfipbf"]'), github.actor) &&
+      contains(fromJSON('["jimmytobing","098595","bfipbf"]'), github.event.issue.user.login) &&
       contains(github.event.issue.body, '### Jim Bash')
     permissions:
       contents: read
