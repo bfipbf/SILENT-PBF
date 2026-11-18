@@ -1,0 +1,29 @@
+name: Gateway implementation checks
+on:
+  pull_request:
+    paths:
+      - '.github/mjs/mutation-preflight.mjs'
+      - '.github/workflows/mutation-preflight.yaml'
+      - '.github/workflows/gateway-checks.yaml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Node syntax checks
+        run: |
+          node --check .github/mjs/mutation-preflight.mjs
+          node --check .github/mjs/sf-readonly.mjs
+          node --check .github/mjs/jim-readonly.mjs
+          node --check .github/mjs/private-evidence.mjs
+      - name: Guard against accidental mutation commands
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -Eq 'SF_CLIENT_SECRET|SF_BFI_PROD_APIKEY|sf[[:space:]]+project[[:space:]]+deploy|sf[[:space:]]+data[[:space:]]+(create|update|delete|upsert)' .github/workflows/mutation-preflight.yaml
+          echo 'Preflight workflow carries no Salesforce mutation secrets or deploy command'
