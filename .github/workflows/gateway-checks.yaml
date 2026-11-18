@@ -5,7 +5,7 @@ on:
       - '.github/mjs/mutation-preflight.mjs'
       - '.github/workflows/mutation-preflight.yaml'
       - '.github/workflows/gateway-checks.yaml'
-      - '.github/workflows/jim-post.yaml'
+      - '.github/workflows/jim.yaml'
       - '.github/mjs/jim-post-approved.mjs'
   workflow_dispatch:
 permissions:
