@@ -80,7 +80,7 @@ async function main() {
 
     var status = error ? "FAILED" : "SUCCESS";
     var lines = [
-        "## " + bashName + " — WDE — Issue #" + issueNumber,
+        "## " + bashName + " — Issue #" + issueNumber,
         "",
         "Status: **" + status + "**",
         "",
@@ -101,7 +101,7 @@ async function main() {
         ""
     ];
     await fs.writeFile(evidenceFile, lines.join("\n"), {mode: 0o600});
-    console.log(bashName + " " + status + " — output disimpan untuk komentar Issue.");
+    console.log(bashName + " " + status + " — evidence disimpan untuk PRIVATE-PBF.");
     if (error) process.exitCode = 1;
 }
 
