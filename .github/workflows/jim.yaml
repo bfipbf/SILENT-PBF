@@ -1,97 +1,121 @@
-name: Jim - External Services GET HEAD and approved POST
+name: Jim - Dupcheck and isolated Bash (Issue request)
+
 on:
   issues:
     types: [opened, edited]
+
 permissions:
   contents: read
-  issues: read
+  issues: write
+
 concurrency:
-  group: jim-issue-${{ github.event.issue.number }}
+  group: jim-api-issue-${{ github.event.issue.number }}
   cancel-in-progress: false
+
 jobs:
-  jim-read-only:
+  jim-request:
     if: >-
-      github.event_name == 'issues' &&
-      contains(fromJSON('["jimmytobing","098595","bfipbf"]'), github.actor) &&
-      contains(fromJSON('["jimmytobing","098595","bfipbf"]'), github.event.issue.user.login) &&
-      !github.event.issue.pull_request &&
+      contains(fromJSON('["jimmytobing","098595"]'), github.actor) &&
+      contains(fromJSON('["jimmytobing","098595"]'), github.event.issue.user.login) &&
       contains(github.event.issue.body, '### Jim Request')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      ISSUE_NUMBER: ${{ github.event.issue.number }}
       SF_BFI_PROD_LOGIN_URL: ${{ vars.SF_BFI_PROD_LOGIN_URL }}
-      SF_CLIENT_ID: ${{ secrets.SF_BFI_PROD_CLIENT_ID }}
-      SF_CLIENT_SECRET: ${{ secrets.SF_BFI_PROD_CLIENT_SECRET }}
       SF_BFI_PROD_APIKEY: ${{ secrets.SF_BFI_PROD_APIKEY }}
+      ISSUE_BODY: ${{ github.event.issue.body }}
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      GH_TOKEN: ${{ github.token }}
       PRIVATE_PBF_TOKEN: ${{ secrets.PRIVATE_PBF_TOKEN }}
     steps:
-      - name: Checkout without persisted credentials
+      - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-      - name: Check private evidence destination
+      - name: Verify exact Jim Request heading
+        id: route
         shell: bash
         run: |
-          if [[ -z "$PRIVATE_PBF_TOKEN" ]]; then
-            echo 'BLOCKED - private evidence token missing'
+          if printf '%s\n' "$ISSUE_BODY" | grep -Eq '^### Jim Request[[:space:]]*$'; then
+            echo 'valid=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'valid=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Call fixed Dupcheck endpoint and prepare evidence
+        id: jim
+        if: steps.route.outputs.valid == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node .github/mjs/jim-request.mjs
+      - name: Publish result in the same Issue
+        if: always() && steps.route.outputs.valid == 'true' && steps.jim.outcome != 'skipped'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -s "$RUNNER_TEMP/jim-request-comment.md" ]]; then
+            gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/jim-request-comment.md"
+          else
+            echo 'No evidence file generated; see job logs.' >&2
             exit 1
           fi
-      - name: Call LIVE-verified read-only External Services
-        id: jim
-        shell: bash
-        run: node .github/mjs/jim-readonly.mjs
-      - name: Publish private evidence only
-        if: always() && steps.jim.outcome != 'skipped'
-        env:
-          EVIDENCE_FILE: ${{ runner.temp }}/jim-evidence.md
-        shell: bash
-        run: node .github/mjs/private-evidence.mjs
 
-
-  route-post-issue:
+  jim-bash:
     if: >-
-      github.event_name == 'issues' &&
-      contains(fromJSON('["jimmytobing","098595","bfipbf"]'), github.actor) &&
-      contains(fromJSON('["jimmytobing","098595","bfipbf"]'), github.event.issue.user.login) &&
-      !github.event.issue.pull_request &&
-      contains(github.event.issue.body, '### Jim POST Request')
+      contains(fromJSON('["jimmytobing","098595"]'), github.actor) &&
+      contains(fromJSON('["jimmytobing","098595"]'), github.event.issue.user.login) &&
+      contains(github.event.issue.body, '### Jim Bash')
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
-    timeout-minutes: 2
-    outputs:
-      private_issue: ${{ steps.route.outputs.private_issue }}
-      request_id: ${{ steps.route.outputs.request_id }}
-    steps:
-      - name: Checkout without credentials
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-      - name: Read safe Issue reference (no secrets)
-        id: route
-        run: node .github/mjs/jim-post-issue-route.mjs
-
-  approved-post:
-    needs: route-post-issue
-    if: >-
-      github.event_name == 'issues' &&
-      needs.route-post-issue.result == 'success' &&
-      contains(fromJSON('["jimmytobing","098595","bfipbf"]'), github.actor)
-    environment: prod-write-approval
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 3
     env:
-      PRIVATE_ISSUE_NUMBER: ${{ needs.route-post-issue.outputs.private_issue }}
-      REQUEST_ID: ${{ needs.route-post-issue.outputs.request_id }}
-      PRIVATE_PBF_TOKEN: ${{ secrets.PRIVATE_PBF_TOKEN }}
-      SF_CLIENT_ID: ${{ secrets.SF_BFI_PROD_CLIENT_ID }}
-      SF_CLIENT_SECRET: ${{ secrets.SF_BFI_PROD_CLIENT_SECRET }}
-      SF_BFI_PROD_APIKEY: ${{ secrets.SF_BFI_PROD_APIKEY }}
-      GITHUB_TOKEN: ${{ github.token }}
+      ISSUE_BODY: ${{ github.event.issue.body }}
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
     steps:
-      - name: Checkout without persisted credentials
+      - name: Checkout code without stored Git credentials
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Approved private Jim POST request
+      - name: Check exact Jim Bash heading
+        id: route
         shell: bash
-        run: node .github/mjs/jim-post-approved.mjs
+        run: |
+          if printf '%s\n' "$ISSUE_BODY" | grep -Eq '^### Jim Bash[[:space:]]*$'; then
+            echo 'valid=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'valid=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Execute isolated Bash
+        id: bash
+        if: steps.route.outputs.valid == 'true'
+        shell: bash
+        run: node .github/mjs/jim-bash.mjs
+      - name: Upload Bash evidence
+        if: always() && steps.route.outputs.valid == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: jim-bash-${{ github.run_id }}
+          path: ${{ runner.temp }}/jim-bash-comment.md
+          if-no-files-found: error
+          retention-days: 1
+
+  publish-jim-bash:
+    needs: jim-bash
+    if: always() && needs.jim-bash.result != 'skipped'
+    permissions:
+      issues: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Download Bash evidence
+        uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427 # v4
+        with:
+          name: jim-bash-${{ github.run_id }}
+          path: ${{ runner.temp }}/jim-bash-result
+      - name: Publish terminal output in same Issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/jim-bash-result/jim-bash-comment.md"

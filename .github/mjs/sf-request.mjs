@@ -1,21 +1,8 @@
 import fs from 'node:fs/promises';
-import { createHash } from 'node:crypto';
 
-// GitHub Issue-driven Salesforce PROD API gateway.
+// GitHub Issue-driven Salesforce WDE API gateway.
 // Validasi host/endpoint wajib sebelum memakai token. Jangan log credential.
-function getProdLoginUrl() {
-  const pinned = 'https://ptbfifinance.my.salesforce.com';
-  const supplied = (process.env.SF_BFI_PROD_LOGIN_URL || pinned).trim();
-  let url;
-  try { url = new URL(supplied); }
-  catch { throw new Error('SF_BFI_PROD_LOGIN_URL harus URL HTTPS valid.'); }
-  if (url.origin !== pinned || url.username || url.password || url.search || url.hash ||
-      (url.pathname !== '/' && url.pathname !== '')) {
-    throw new Error('SF_BFI_PROD_LOGIN_URL harus domain Salesforce PROD yang disetujui, tanpa path/query.');
-  }
-  return url.origin;
-}
-var instanceUrl = getProdLoginUrl();
+var instanceUrl = (process.env.SF_INSTANCE_URL || '').trim().replace(/\/$/, '');
 var clientId = process.env.SF_CLIENT_ID;
 var clientSecret = process.env.SF_CLIENT_SECRET;
 var issueBody = process.env.ISSUE_BODY || '';
@@ -57,10 +44,30 @@ function parseIssueRequest(text) {
   return data;
 }
 
+function validateInstanceUrl() {
+  if (!instanceUrl) throw new Error('GitHub Variable SF_INSTANCE_URL belum disetel.');
+  var base;
+  try { base = new URL(instanceUrl); }
+  catch { throw new Error('SF_INSTANCE_URL bukan URL valid.'); }
+  if (base.protocol !== 'https:' || !base.hostname.endsWith('.my.salesforce.com') ||
+      base.username || base.password || base.pathname !== '/' || base.search || base.hash ||
+      base.origin !== instanceUrl) {
+    throw new Error('SF_INSTANCE_URL harus HTTPS My Domain Salesforce tanpa path/query.');
+  }
+  if (base.origin !== 'https://hdbsf-dev-ed.develop.my.salesforce.com') {
+    throw new Error('SF_INSTANCE_URL wajib menunjuk ke domain WDE hdbsf (bukan org lain).');
+  }
+}
+
 function validateRequest(input) {
-  if (typeof input.url !== 'string') throw new Error('url wajib berupa string HTTPS.');
+  if (typeof input.url !== 'string') throw new Error('url wajib berupa URL HTTPS atau path API relatif.');
   var url;
-  try { url = new URL(input.url); }
+  try {
+    // Relative paths are resolved only against the configured, validated WDE domain.
+    url = input.url.startsWith('/services/')
+      ? new URL(input.url, instanceUrl)
+      : new URL(input.url);
+  }
   catch { throw new Error('URL request tidak valid.'); }
   if (
     url.protocol !== 'https:' ||
@@ -68,20 +75,19 @@ function validateRequest(input) {
     url.username || url.password || url.hash ||
     input.url.length > 2048
   ) {
-    throw new Error('URL harus HTTPS Salesforce PROD dengan host yang disetujui.');
+    throw new Error('URL harus HTTPS Salesforce WDE dengan host yang disetujui.');
+  }
+  // No per-endpoint allowlist. Keep requests on the verified WDE Salesforce REST namespace.
+  if (!/^\/services\/(?:data\/v[0-9]+\.[0-9]+\/|apexrest\/)/.test(url.pathname)) {
+    throw new Error('Hanya Salesforce REST data/apexrest namespace yang diizinkan.');
   }
   var method = (input.options.method || 'GET').toUpperCase();
-  if (method !== 'GET') throw new Error('SILENT-PBF gateway public hanya mengizinkan GET read-only.');
-  // Restrict GET to Salesforce REST read-only endpoints.
-  var readOnlyPath = /^\/services\/data\/v\d+\.\d+\/(?:query|queryAll|tooling\/query|tooling\/queryAll)(?:\/.*)?$/;
-  var approvedPostPath = '/services/apexrest/apigw/Expose_API_BFI_Leads_Report';
-  if (method === 'GET' && !readOnlyPath.test(url.pathname)) {
-    throw new Error('GET hanya diizinkan untuk endpoint REST query/tooling query.');
+  if (!['GET', 'POST', 'PATCH', 'PUT', 'DELETE'].includes(method)) {
+    throw new Error('Method tidak didukung.');
   }
-  if (method === 'POST' && (url.pathname !== approvedPostPath || url.search)) {
-    throw new Error('POST hanya diizinkan ke endpoint Apex REST yang telah ditentukan.');
+  if (input.targetOrgId !== '00Dfj00000eVCOVEA4') {
+    throw new Error('targetOrgId wajib cocok dengan immutable WDE Org ID.');
   }
-
   var rawHeaders = input.options.headers || {};
   if (!rawHeaders || typeof rawHeaders !== 'object' || Array.isArray(rawHeaders)) {
     throw new Error('options.headers harus berupa object.');
@@ -94,48 +100,23 @@ function validateRequest(input) {
     if (value.length > 150) throw new Error('Header terlalu panjang.');
     headers.set(key, value);
   }
-  if (method === 'GET' && input.options.body !== undefined) {
-    throw new Error('GET tidak menerima body.');
+  if (['GET', 'DELETE'].includes(method) && input.options.body !== undefined) {
+    throw new Error('GET dan DELETE tidak menerima body.');
   }
-  if (method === 'POST' && input.options.body !== undefined &&
+  if (['POST', 'PATCH', 'PUT'].includes(method) && input.options.body !== undefined &&
       (typeof input.options.body !== 'object' || input.options.body === null)) {
     throw new Error('POST body harus berupa JSON object.');
   }
-  if (method === 'POST' && !headers.has('content-type')) {
+  if (['POST', 'PATCH', 'PUT'].includes(method) && !headers.has('content-type')) {
     headers.set('Content-Type', 'application/json');
   }
-  var body = method === 'POST' ? JSON.stringify(input.options.body === undefined ? {} : input.options.body) : undefined;
+  var body = ['POST', 'PATCH', 'PUT'].includes(method) ? JSON.stringify(input.options.body === undefined ? {} : input.options.body) : undefined;
   if (body && body.length > 10000) throw new Error('Request body terlalu besar.');
   return { url, method, headers, body };
 }
 
-var MAX_RESPONSE_BYTES = 1000000; // Full response accepted internally; evidence is size-limited below.
-function compactFlowMetadata(data) {
-  if (!data || !Array.isArray(data.records)) return data;
-  var found = data.records.some(r => r && r.Metadata);
-  if (!found) return data;
-  return { totalSize: data.totalSize, done: data.done, records: data.records.map(r => {
-    if (!r.Metadata) return r;
-    var m = r.Metadata;
-    var keys = ['label','processType','status','start','loops','actionCalls','subflows'];
-    var result = {Id:r.Id};
-    for (var key of keys) if (m[key] !== undefined) result[key] = m[key];
-    // Compact element structures; keep references, action names and loop wiring only.
-    for (var key of ['loops','actionCalls','subflows']) {
-      if (!Array.isArray(result[key])) continue;
-      result[key] = result[key].map(e => {
-        var out={};
-        for (var k of ['name','label','actionName','actionType','flowName','collectionReference','iterationOrder','nextValueConnector','noMoreValuesConnector','connector','faultConnector'])
-          if (e[k] !== undefined) out[k]=e[k];
-        return out;
-      });
-    }
-    return result;
-  }) };
-}
-var EVIDENCE_FILE = (process.env.RUNNER_TEMP || '/tmp') + '/sf-evidence.md';
-var SUMMARY_FILE = (process.env.RUNNER_TEMP || '/tmp') + '/sf-summary.md';
-var COMMENT_LIMIT_BYTES = 55000;
+var MAX_RESPONSE_BYTES = 50000;
+var EVIDENCE_FILE = (process.env.RUNNER_TEMP || '/tmp') + '/sf-request-comment.md';
 var maskKey = /(?:token|secret|password|authorization|credential|api[_-]?key)/i;
 
 function sanitize(value, secrets = [], depth = 0) {
@@ -188,7 +169,7 @@ async function writeEvidence(evidence) {
   var status = response ? response.status : 'N/A';
   var method = parsed ? parsed.method : 'N/A';
   var url = parsed ? parsed.url.toString() : '(request belum valid)';
-  var lines = ['## Sf Request — BFI_PROD — Issue #' + issue, '',
+  var lines = ['## Sf Request — WDE — Issue #' + issue, '',
     'Status: **' + (error ? 'FAILED' : response && response.ok ? 'SUCCESS' : 'FAILED') + '** · HTTP ' + status + ' · Method ' + method, ''];
   if (parsed) {
     var soql = parsed.url.searchParams.get('q');
@@ -198,7 +179,7 @@ async function writeEvidence(evidence) {
     lines.push('<details>', '<summary>cURL (credential masked)</summary>', '', '```bash',
       'curl --request ' + parsed.method + ' ' + quoteShell(url) + ' \\',
       "  --header 'Authorization: Bearer [HIDDEN]'" + (parsed.body !== undefined ? ' \\' : ''));
-    if (parsed.body !== undefined) lines.push("  --header 'Content-Type: application/json' \\", '  --data ' + quoteShell(parsed.body));
+    if (parsed.body !== undefined) lines.push("  --header 'Content-Type: application/json' \\", '  --data ' + quoteShell(JSON.stringify(sanitize(JSON.parse(parsed.body), secrets))));
     lines.push('```', '', '</details>', '');
   }
   lines.push('### Response', '', '<details>', '<summary>Response JSON — HTTP ' + status + '</summary>', '');
@@ -210,31 +191,10 @@ async function writeEvidence(evidence) {
     '```', '', '</details>', '');
   var markdown = lines.join('\n');
   markdown = sanitize(markdown, secrets);
-  // Full, sanitized evidence remains intact; 55 KB applies only to the Issue comment.
-  await fs.writeFile(EVIDENCE_FILE, markdown, { mode: 0o600 });
-  var bytes = Buffer.byteLength(markdown, 'utf8');
-  var sha256 = createHash('sha256').update(markdown, 'utf8').digest('hex');
-  var runId = process.env.GITHUB_RUN_ID || 'unknown';
-  var runUrl = 'https://github.com/' + (process.env.GITHUB_REPOSITORY || 'bfipbf/GPT-PBF') + '/actions/runs/' + runId;
-  // Render the same comment as a normal request. Only the collapsible response body differs.
-  // The artifact URL is replaced after upload by sf.yaml.
-  var responseStart = lines.findIndex((line) => line === '```json');
-  if (responseStart < 0) throw new Error('EVIDENCE_FAILED: response renderer not found');
-  var summaryLines = lines.slice(0, responseStart);
-  summaryLines.push(
-    '[Download response lengkap (.md)]({{SF_ARTIFACT_URL}})',
-    '',
-    'Evidence size: ' + bytes + ' bytes · SHA-256: \`' + sha256 + '\` · Run ID: ' + runId,
-    '',
-    '</details>',
-    ''
-  );
-  var summary = sanitize(summaryLines.join('\n'), secrets);
-  if (Buffer.byteLength(summary, 'utf8') > COMMENT_LIMIT_BYTES) {
-    throw new Error('EVIDENCE_FAILED: fallback comment exceeds limit; reduce request size');
+  if (Buffer.byteLength(markdown) > 55000) {
+    markdown = '## Sf Request — WDE — Issue #' + issue + '\n\nHTTP ' + status + '\n\nResponse terlalu besar untuk satu komentar; batasi query atau payload.';
   }
-  await fs.writeFile(SUMMARY_FILE, summary, { mode: 0o600 });
-  console.log('Evidence bytes=' + bytes + ' SHA256=' + sha256 + ' commentLimit=' + COMMENT_LIMIT_BYTES);
+  await fs.writeFile(EVIDENCE_FILE, markdown, { mode: 0o600 });
 }
 
 async function main() {
@@ -243,6 +203,7 @@ async function main() {
   var data;
   var accessToken;
   try {
+    validateInstanceUrl();
     parsed = validateRequest(parseIssueRequest(issueBody));
     if (!clientId || !clientSecret) {
       throw new Error('GitHub Secrets SF_CLIENT_ID / SF_CLIENT_SECRET belum lengkap.');
@@ -256,20 +217,26 @@ async function main() {
       redirect: 'error',
       signal: AbortSignal.timeout(30000),
     });
-    if (!auth.ok) {
-      let code = 'unknown';
-      try {
-        const payload = await auth.json();
-        if (typeof payload?.error === 'string' && /^[a-z0-9_]{1,60}$/i.test(payload.error)) {
-          code = payload.error;
-        }
-      } catch {}
-      throw new Error('OAuth Salesforce gagal: HTTP ' + auth.status + ' (' + code + ')');
-    }
+    if (!auth.ok) throw new Error('OAuth Salesforce gagal: HTTP ' + auth.status);
     var tokenPayload = await auth.json();
     accessToken = tokenPayload ? tokenPayload.access_token : null;
     if (typeof accessToken !== 'string' || !accessToken) throw new Error('OAuth tidak memberikan access_token.');
     if (process.env.GITHUB_ACTIONS === 'true') process.stdout.write('::add-mask::' + accessToken + '\n');
+
+    // Verify authenticated org, not merely CLI alias / My Domain string.
+    var verificationQuery = new URL(instanceUrl + '/services/data/v68.0/query');
+    verificationQuery.searchParams.set('q', 'SELECT Id, OrganizationType FROM Organization LIMIT 1');
+    var verifyResponse = await fetch(verificationQuery, {
+      headers: { Authorization: 'Bearer ' + accessToken },
+      redirect: 'error',
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!verifyResponse.ok) throw new Error('Org verification failed: HTTP ' + verifyResponse.status);
+    var verifiedOrg = (await verifyResponse.json()).records?.[0];
+    if (verifiedOrg?.Id !== '00Dfj00000eVCOVEA4' || verifiedOrg?.OrganizationType !== 'Developer Edition') {
+      throw new Error('Authenticated Salesforce org does not match WDE Developer Edition Org ID.');
+    }
+    console.log('VERIFIED_ORG_ID', verifiedOrg.Id);
 
     parsed.headers.set('Authorization', 'Bearer ' + accessToken);
     response = await fetch(parsed.url, {
@@ -279,17 +246,15 @@ async function main() {
       redirect: 'error',
       signal: AbortSignal.timeout(30000),
     });
-    data = compactFlowMetadata(await readResponse(response));
+    data = await readResponse(response);
     await writeEvidence({ parsed, response, data, secrets: [clientId, clientSecret, accessToken] });
-    console.log('Issue #' + (process.env.ISSUE_NUMBER || '?') + ': ' + parsed.method + ' Salesforce PROD HTTP ' + response.status);
+    console.log('Issue #' + (process.env.ISSUE_NUMBER || '?') + ': ' + parsed.method + ' Salesforce WDE HTTP ' + response.status);
     if (!response.ok) process.exitCode = 1;
   } catch (error) {
-    console.error('SF API FAILED: detail hanya pada private evidence.');
+    console.error('SF API FAILED:', error.message);
     await writeEvidence({ parsed, response, data, error, secrets: [clientId, clientSecret, accessToken] });
     process.exitCode = 1;
   }
 }
 
-if (process.env.SF_EVIDENCE_TEST_MODE !== 'true') await main();
-
-export { writeEvidence, sanitize };
+await main();
