@@ -8,7 +8,6 @@ const summary = {org:'BFI_PROD', operation:'READ_ONLY', run:process.env.GITHUB_R
 let failed = false;
 
 try {
-  if (process.env.SF_GATEWAY_ENABLED !== 'true') throw Error('GATEWAY_DISABLED');
   if (process.env.SF_BFI_PROD_LOGIN_URL && process.env.SF_BFI_PROD_LOGIN_URL !== origin)
     throw Error('ORG_NOT_ALLOWLISTED');
   const heads = [...body.matchAll(/^### Sf Request[ \t]*$/gm)];
