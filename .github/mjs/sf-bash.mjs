@@ -133,8 +133,15 @@ async function runDeployGateway() {
     let req;
     try { req = JSON.parse(matches[0][1]); } catch { fail('JSON Sf Deploy tidak valid.'); }
     if (!req || Array.isArray(req) || typeof req !== 'object') fail('Request harus berupa JSON object.');
-    if (Object.keys(req).some(k => !['mode','commit','manifest','preDestructiveChanges','postDestructiveChanges'].includes(k))) fail('Parameter Sf Deploy tidak dikenal.');
+    if (Object.keys(req).some(k => !['mode','commit','manifest','preDestructiveChanges','postDestructiveChanges','tests','testLevel'].includes(k))) fail('Parameter Sf Deploy tidak dikenal.');
     if (!['validate','deploy'].includes(req.mode)) fail('mode hanya validate atau deploy.');
+    if (req.testLevel !== undefined && !['RunSpecifiedTests','RunLocalTests'].includes(req.testLevel)) fail('testLevel hanya RunSpecifiedTests atau RunLocalTests.');
+    req.testLevel ??= 'RunSpecifiedTests';
+    if (req.tests !== undefined && (!Array.isArray(req.tests) || req.tests.length < 1 || req.tests.length > 20 ||
+        req.tests.some(t => typeof t !== 'string' || !/^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(t)) ||
+        new Set(req.tests).size !== req.tests.length)) fail('tests wajib array 1-20 nama Apex test class unik.');
+    if (req.testLevel === 'RunLocalTests' && req.tests !== undefined) fail('tests hanya untuk RunSpecifiedTests.');
+    if (req.testLevel === 'RunSpecifiedTests') req.tests ??= ['JimApiGw_Test'];
     if (typeof req.commit !== 'string' || !/^[a-f0-9]{40}$/.test(req.commit)) fail('commit wajib full 40-char SHA lowercase.');
     if (typeof req.manifest !== 'string' || !/^manifest\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,100}\.xml$/.test(req.manifest)) fail('manifest harus file XML di folder manifest/.');
     for (const key of ['preDestructiveChanges', 'postDestructiveChanges']) {
@@ -208,6 +215,7 @@ async function runDeployGateway() {
       errorMessage: String(result.message || result.data?.message || '').slice(0, 400)
     } : {};
     return { ...diagnostic, success:ok, mode:req.mode, sha:req.commit, manifest:req.manifest,
+      testLevel:req.testLevel, tests:req.testLevel==='RunSpecifiedTests'?req.tests:[],
       deploymentId:r.id || null, status:r.status || 'Unknown', checkOnly:r.checkOnly === true,
       totalComponents:r.numberComponentsTotal ?? null, componentErrors:r.numberComponentErrors ?? null,
       testErrors:r.numberTestErrors ?? null, manifestMembers:scope.count, failures };
@@ -215,7 +223,7 @@ async function runDeployGateway() {
   function publish(obj, command = null) {
     const safe = JSON.stringify(obj,null,2);
     const status = obj.success ? 'SUCCESS' : 'FAILED';
-    const lines = ['## Sf Deploy — WDE — Issue #' + process.env.ISSUE_NUMBER, '',
+    const lines = ['## Sf Deploy — Issue #' + process.env.ISSUE_NUMBER, '',
       'Status: **' + status + '**', '', '### Terminal Command', '', '```bash',
       // Reproduce only the trusted, allowlisted CLI argv; never print credentials.
       command || 'Not executed (failed before Salesforce CLI deploy command).', '```', '',
@@ -237,7 +245,8 @@ async function runDeployGateway() {
     } else if(cmd==='run') {
       const scope=inspectManifest(req);
       const args=['project','deploy','start','--target-org','hdbsf','--manifest',req.manifest,
-        '--test-level','RunLocalTests','--wait','8','--json'];
+        '--test-level',req.testLevel,'--wait','8','--json'];
+      if (req.testLevel === 'RunSpecifiedTests') for (const test of req.tests) args.push('--tests',test);
       if(req.mode==='validate') args.splice(3,0,'--dry-run');
       if(req.preDestructiveChanges) args.push('--pre-destructive-changes',req.preDestructiveChanges);
       if(req.postDestructiveChanges) args.push('--post-destructive-changes',req.postDestructiveChanges);
