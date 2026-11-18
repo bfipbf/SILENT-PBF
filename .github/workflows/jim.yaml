@@ -1,4 +1,4 @@
-name: Jim - Dupcheck and isolated Bash (Issue request)
+name: Jim - Dynamic API and isolated Bash (Issue request)
 
 on:
   issues:
@@ -39,7 +39,7 @@ jobs:
           else
             echo 'valid=false' >> "$GITHUB_OUTPUT"
           fi
-      - name: Call fixed Dupcheck endpoint and prepare evidence
+      - name: Run requested Jim API endpoint and prepare evidence
         id: jim
         if: steps.route.outputs.valid == 'true'
         shell: bash
