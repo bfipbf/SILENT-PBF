@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 
-const body = process.env.ISSUE_BODY ?? '';
+const event = JSON.parse(await fs.readFile(process.env.GITHUB_EVENT_PATH,'utf8'));
+const body = event.issue?.body ?? '';
 const file = (process.env.RUNNER_TEMP ?? '/tmp') + '/sf-evidence.md';
 const origin = 'https://ptbfifinance.my.salesforce.com';
 const summary = {org:'BFI_PROD', operation:'READ_ONLY', run:process.env.GITHUB_RUN_ID, status:'FAILED'};
