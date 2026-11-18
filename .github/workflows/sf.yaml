@@ -84,6 +84,7 @@ jobs:
             echo 'valid=false' >> "$GITHUB_OUTPUT"
           fi
       - name: Install Salesforce CLI from official compressed TAR (no npm/cache)
+        id: install
         if: steps.route.outputs.valid == 'true'
         shell: bash
         run: |
@@ -99,6 +100,7 @@ jobs:
           echo "$CLI_DIR/bin" >> "$GITHUB_PATH"
           "$CLI_DIR/bin/sf" --version
       - name: Authenticate Salesforce CLI to configured Salesforce instance
+        id: auth
         if: steps.route.outputs.valid == 'true'
         shell: bash
         env:
@@ -113,6 +115,27 @@ jobs:
         if: steps.route.outputs.valid == 'true'
         shell: bash
         run: node .github/mjs/sf-bash.mjs
+      - name: Prepare Sf Bash failure evidence if execution did not start
+        if: always() && steps.route.outputs.valid == 'true'
+        env:
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          AUTH_OUTCOME: ${{ steps.auth.outcome }}
+          BASH_OUTCOME: ${{ steps.bash.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE="$RUNNER_TEMP/sf-bash-comment.md"
+          if [[ ! -s "$FILE" ]]; then
+            {
+              echo "## Sf Bash — Issue #$ISSUE_NUMBER"
+              echo
+              echo "Status: **FAILED before Bash result**"
+              echo
+              echo "cli_install=$INSTALL_OUTCOME; auth=$AUTH_OUTCOME; execution=$BASH_OUTCOME"
+              echo
+              echo "See GitHub Actions job logs for the failed prerequisite. No Salesforce success is claimed."
+            } > "$FILE"
+          fi
       - name: Upload Sf Bash evidence
         if: always() && steps.route.outputs.valid == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -135,14 +158,20 @@ jobs:
         with:
           name: sf-bash-${{ github.run_id }}
           path: ${{ runner.temp }}/sf-bash-result
-      - name: Publish Sf Bash output in same Issue
+      - name: Checkout trusted private evidence publisher
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Publish Sf Bash evidence to linked PRIVATE-PBF Issue only
         env:
-          GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+          PRIVATE_PBF_TOKEN: ${{ secrets.PRIVATE_PBF_TOKEN }}
+          EVIDENCE_FILE: ${{ runner.temp }}/sf-bash-result/sf-bash-comment.md
+          EVIDENCE_KIND: sf-bash
         shell: bash
         run: |
           set -euo pipefail
-          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/sf-bash-result/sf-bash-comment.md"
+          node .github/mjs/publish-jim-private.mjs
 
   sf-deploy:
     if: >-
