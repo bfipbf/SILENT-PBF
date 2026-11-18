@@ -145,8 +145,8 @@ async function runDeployGateway() {
     return req;
   }
   function gate() {
-    const allowedActors = new Set(['jimmytobing', '098595']);
-    if (process.env.GITHUB_REPOSITORY !== 'jimmytobing/Syntetic-Wisdom' ||
+    const allowedActors = new Set(['jimmytobing', '098595', 'bfipbf']);
+    if (process.env.GITHUB_REPOSITORY !== 'bfipbf/SILENT-PBF' ||
         !allowedActors.has(process.env.GITHUB_ACTOR) ||
         !allowedActors.has(process.env.ISSUE_AUTHOR) ||
         !/^\d+$/.test(process.env.ISSUE_NUMBER || '')) fail('GitHub actor/repo/Issue tidak diizinkan.');
