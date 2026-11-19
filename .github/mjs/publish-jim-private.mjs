@@ -47,7 +47,7 @@ function extractRequest(body, heading, language) {
   if (!found[0].trim() || Buffer.byteLength(found[0], "utf8") > 12000) throw Error("Gateway request block invalid or too large.");
   return "### " + heading + "\n\n```" + language + "\n" + found[0] + "\n```\n\n";
 }
-// GitHub's <details> is presentation-only: the exact gateway request is unchanged.
+// GitHub's <details> is presentation-only: keep the gateway request visible and unchanged.
 function collapseCodeBlock(markdown, heading, language, summary) {
   const fence = String.fromCharCode(96).repeat(3);
   const pattern = new RegExp(
@@ -61,11 +61,8 @@ function collapseCodeBlock(markdown, heading, language, summary) {
 const requestBlock = extractRequest(issueBody, ...requestType);
 const statusAt = evidence.search(/^Status: /m);
 if (statusAt === -1) throw Error("Evidence lacks Status line.");
-const collapseKinds = new Set(["bash", "sf-bash", "sf-deploy"]);
-const renderedRequest = collapseKinds.has(kind)
-  ? "<details>\n<summary>" + requestType[0] + " request</summary>\n\n" + requestBlock + "</details>\n\n"
-  : requestBlock;
-let formattedEvidence = evidence.slice(0, statusAt) + renderedRequest + evidence.slice(statusAt);
+// Keep the gateway request copy visible for audit and quick review.
+let formattedEvidence = evidence.slice(0, statusAt) + requestBlock + evidence.slice(statusAt);
 if (kind === "bash" || kind === "sf-bash") {
   formattedEvidence = collapseCodeBlock(formattedEvidence, "Bash Script", "bash", "Bash Script");
 } else if (kind === "sf-deploy") {
