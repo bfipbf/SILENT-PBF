@@ -1,4 +1,4 @@
-name: Jim - Dynamic API and isolated Bash (Issue request)
+name: Jim - Dynamic API with private Direct Request template
 
 on:
   issues:
@@ -124,3 +124,33 @@ jobs:
         run: |
           set -euo pipefail
           node .github/mjs/publish-jim-private.mjs
+
+  direct-request:
+    if: >-
+      github.repository == 'bfipbf/PRIVATE-PBF' &&
+      contains(fromJSON('["jimmytobing","098595","bfipbf"]'), github.actor) &&
+      contains(fromJSON('["jimmytobing","098595","bfipbf"]'), github.event.issue.user.login) &&
+      contains(github.event.issue.body, '### Direct Request')
+    permissions:
+      contents: read
+      issues: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: direct-request-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    env:
+      SF_BFI_PROD_APIKEY: ${{ secrets.SF_BFI_PROD_APIKEY }}
+      ISSUE_BODY: ${{ github.event.issue.body }}
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Execute private Direct Request and audit in same issue
+        shell: bash
+        run: |
+          set -euo pipefail
+          node .github/mjs/direct-request.mjs
